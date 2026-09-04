@@ -10,6 +10,8 @@
   max-width:420px;
 }
 
+.card{box-shadow:var(--shadow-lg);}
+
 .form{
   display:flex;
   flex-direction:column;

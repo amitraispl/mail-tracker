@@ -9,7 +9,7 @@
   /* background */
   --color-bg:#FFFFFF; --color-surface:#F5F5F5; --color-surface-alt:#E3E3E3;
   /* text */
-  --color-text-primary:#000000; --color-text-secondary:#555555; --color-text-muted:#888888; --color-text-inverse:#FFFFFF;
+  --color-text-primary:#15161A; --color-text-secondary:#555555; --color-text-muted:#888888; --color-text-inverse:#FFFFFF;
   /* accent (sparingly: tags, badges, highlights) */
   --color-accent-light:#DD4C68; --color-accent-muted:#D6A6A7; --color-accent-dark:#B74E4E;
   /* borders */
@@ -45,7 +45,8 @@ html{-webkit-text-size-adjust:100%;}
 
 body{
   margin:0;
-  background:var(--color-bg);
+  /* page ground is the soft surface tone, not white — lets white cards read as lifted. */
+  background:var(--color-surface);
   color:var(--color-text-secondary);
   font-family:var(--font-sans);
   font-size:var(--text-md);
@@ -60,6 +61,7 @@ h1,h2,h3,h4,h5,h6{
   color:var(--color-text-primary);
   font-weight:var(--weight-semibold);
   line-height:1.25;
+  letter-spacing:-.01em;
 }
 h1{font-size:var(--text-2xl);}
 h2{font-size:var(--text-xl);}
@@ -126,6 +128,18 @@ button,input,select,textarea{font:inherit;color:inherit;}
 
 .mono{font-family:var(--font-mono);}
 .tabular{font-variant-numeric:tabular-nums;}
+
+/* Shared entrance: content settles in rather than popping. Respects reduced-motion below. */
+@keyframes rise-in{
+  from{opacity:0;transform:translateY(6px);}
+  to{opacity:1;transform:translateY(0);}
+}
+.enter{animation:rise-in .4s cubic-bezier(.16,1,.3,1) both;}
+.enter-1{animation-delay:.03s;}
+.enter-2{animation-delay:.06s;}
+.enter-3{animation-delay:.09s;}
+.enter-4{animation-delay:.12s;}
+.enter-5{animation-delay:.15s;}
 
 @media (max-width:640px){
   .container{padding:0 var(--space-3);}

@@ -1,6 +1,10 @@
 .masthead{
+  position:sticky;
+  top:0;
+  z-index:10;
   background:var(--color-bg);
   border-bottom:2px solid var(--color-primary); /* thin crimson rule */
+  box-shadow:var(--shadow-sm); /* lifts the white bar off the gray page below */
 }
 
 .bar{

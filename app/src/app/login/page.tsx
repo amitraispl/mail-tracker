@@ -43,6 +43,7 @@ function LoginForm() {
 
   return (
     <Card
+      className={styles.card}
       title="Sign in"
       description="This tracker is private. Enter the shared password to continue."
     >
@@ -80,7 +81,7 @@ export default function LoginPage() {
         homeHref={null}
       />
       <main className={`container section ${styles.wrap}`}>
-        <div className={styles.panel}>
+        <div className={`${styles.panel} enter`}>
           <Suspense fallback={null}>
             <LoginForm />
           </Suspense>

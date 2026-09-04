@@ -103,8 +103,13 @@
 
 .resultHead{
   display:flex;
-  align-items:baseline;
-  gap:var(--space-2);
+  align-items:center;
+  gap:var(--space-3);
+}
+
+.resultMark{
+  border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-sm);
 }
 
 .count{

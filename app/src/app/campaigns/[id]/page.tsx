@@ -11,6 +11,8 @@ import {
   type Column,
 } from "@/components";
 import { CampaignControls } from "./CampaignControls";
+import { CampaignEditor } from "./CampaignEditor";
+import { DeleteCampaign } from "./DeleteCampaign";
 import styles from "./dashboard.module.css";
 
 export const dynamic = "force-dynamic";
@@ -47,20 +49,12 @@ const columns: Column<PerLinkStats>[] = [
     mono: true,
   },
   {
-    key: "uniqueClicks",
-    header: "Unique clicks",
-    cell: (link) => link.uniqueClicks,
-    align: "right",
-    mono: true,
-    width: "140px",
-  },
-  {
     key: "totalClicks",
-    header: "Total clicks",
+    header: "Clicks",
     cell: (link) => link.totalClicks,
     align: "right",
     mono: true,
-    width: "130px",
+    width: "110px",
   },
 ];
 
@@ -98,26 +92,18 @@ export default async function CampaignDashboardPage({
 
       <main className="container section">
         <div className={styles.stack}>
-          <Card>
+          <Card className="enter enter-1">
             <div className={styles.metrics}>
               <Stat
-                label="Open rate"
-                value={stats.openRate.toFixed(2)}
-                suffix="%"
+                label="Total opens"
+                value={stats.totalOpens}
                 accent
-                hint={`${stats.uniqueOpens} unique of ${stats.sent} sent`}
+                hint="Every pixel hit, no dedup"
               />
               <Stat
-                label="Click-through rate"
-                value={stats.clickRate.toFixed(2)}
-                suffix="%"
-                hint={`${stats.uniqueClicks} unique of ${stats.sent} sent`}
-              />
-              <Stat
-                label="Click-to-open rate"
-                value={stats.clickToOpenRate.toFixed(2)}
-                suffix="%"
-                hint="Unique clicks of unique opens"
+                label="Total clicks"
+                value={stats.totalClicks}
+                hint="Every link hit, no dedup"
               />
               <Stat
                 label="Emails sent"
@@ -125,31 +111,12 @@ export default async function CampaignDashboardPage({
                 hint="Entered manually"
               />
             </div>
-
-            <div className={styles.counts}>
-              <div className={styles.count}>
-                <span className={styles.countValue}>{stats.uniqueOpens}</span>
-                <span className={styles.countLabel}>Unique opens</span>
-              </div>
-              <div className={styles.count}>
-                <span className={styles.countValue}>{stats.totalOpens}</span>
-                <span className={styles.countLabel}>Total opens</span>
-              </div>
-              <div className={styles.count}>
-                <span className={styles.countValue}>{stats.uniqueClicks}</span>
-                <span className={styles.countLabel}>Unique clicks</span>
-              </div>
-              <div className={styles.count}>
-                <span className={styles.countValue}>{stats.totalClicks}</span>
-                <span className={styles.countLabel}>Total clicks</span>
-              </div>
-            </div>
           </Card>
 
           <Card
+            className="enter enter-2"
             title="Links"
             description="Every rewritten link counts on its own token."
-            flush
           >
             <DataTable
               columns={columns}
@@ -160,8 +127,9 @@ export default async function CampaignDashboardPage({
           </Card>
 
           <Card
+            className="enter enter-3"
             title="Campaign settings"
-            description="The send count drives every rate — update it once you know what Carbonio actually sent."
+            description="Update the send count once you know what Carbonio actually sent."
           >
             <CampaignControls
               id={campaign.id}
@@ -171,10 +139,27 @@ export default async function CampaignDashboardPage({
             />
           </Card>
 
+          <Card
+            className="enter enter-3"
+            title="Edit campaign"
+            description="Rename the campaign, or replace its HTML and regenerate every link token."
+          >
+            <CampaignEditor id={campaign.id} name={campaign.name} />
+          </Card>
+
+          <Card
+            className="enter enter-3"
+            title="Danger zone"
+            description="Deletes the campaign and every open/click logged against it. This can't be undone."
+          >
+            <DeleteCampaign id={campaign.id} name={campaign.name} />
+          </Card>
+
           <p className={styles.note}>
-            Open rate is approximate — image blocking hides opens and Apple Mail
-            Privacy pre-loads pixels, inflating them. Per-link clicks are the
-            reliable signal.
+            Opens are approximate — image blocking hides them and Apple Mail
+            Privacy pre-loads pixels, inflating the count. Per-link clicks are
+            the reliable signal. Numbers here are raw totals: no unique/dedup
+            counting.
           </p>
         </div>
       </main>

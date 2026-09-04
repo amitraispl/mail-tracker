@@ -152,6 +152,15 @@ export default function NewCampaignPage() {
             >
               <div className={styles.result}>
                 <p className={styles.resultHead}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    className={styles.resultMark}
+                    src="/brand/illumia-mark.png"
+                    alt=""
+                    aria-hidden="true"
+                    width={28}
+                    height={28}
+                  />
                   <span className={styles.count}>{result.linkCount}</span>
                   <span className={styles.countLabel}>
                     {result.linkCount === 1

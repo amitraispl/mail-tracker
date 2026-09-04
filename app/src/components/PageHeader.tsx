@@ -12,7 +12,7 @@ export interface PageHeaderProps {
   homeHref?: string | null;
 }
 
-const LOGO_SRC = "/brand/illumia-logo-dark.svg";
+const LOGO_SRC = "/brand/illumia-logo.png";
 const LOGO_ALT = "Illumia Solutions";
 
 export function PageHeader({
@@ -23,7 +23,7 @@ export function PageHeader({
   homeHref = "/",
 }: PageHeaderProps) {
   /* eslint-disable-next-line @next/next/no-img-element */
-  const logo = <img src={LOGO_SRC} alt={LOGO_ALT} className={styles.logo} width={133} height={32} />;
+  const logo = <img src={LOGO_SRC} alt={LOGO_ALT} className={styles.logo} width={132} height={32} />;
 
   return (
     <header>

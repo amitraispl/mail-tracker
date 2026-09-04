@@ -67,11 +67,11 @@ export default async function HomePage() {
           />
         ) : (
           <div className={styles.list}>
-            {campaigns.map((campaign) => (
+            {campaigns.map((campaign, index) => (
               <Link
                 key={campaign.id}
                 href={`/campaigns/${campaign.id}`}
-                className={styles.rowLink}
+                className={`${styles.rowLink} enter enter-${Math.min(index + 1, 5)}`}
               >
                 <Card className={styles.row}>
                   <div className={styles.rowMain}>

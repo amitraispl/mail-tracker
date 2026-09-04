@@ -52,32 +52,39 @@ export function transformHtml(html: string, opts: { baseUrl: string; openToken: 
 export const newOpenToken: () => string;     // nanoid(14)
 
 // src/lib/stats.ts
-export interface CampaignStats { sent; totalOpens; uniqueOpens; totalClicks; uniqueClicks;
-  openRate; clickRate; clickToOpenRate }     // rates are % to 2 dp, divide-by-zero → 0
+export interface CampaignStats { sent; totalOpens; totalClicks }   // raw totals only, no rates
 export function computeStats(input): CampaignStats;
 
 // src/lib/query.ts
 export async function loadCampaign(id: string): Promise<{
   id; name; openToken; sentCount; createdAt; processedHtml;
   stats: CampaignStats;
-  perLink: { id; label; originalUrl; totalClicks; uniqueClicks }[];
+  perLink: { id; label; originalUrl; totalClicks }[];
 } | null>;
 ```
-"Unique" = distinct `recipientRef` if present, else distinct `ip|userAgent`.
+No dedup / "unique" concept, and **no rate/percentage calculations anywhere** — every
+logged `OpenEvent`/`ClickEvent` row counts, and the dashboard only ever shows raw
+totals (total opens, total clicks per link). This was a deliberate call: with one
+shared HTML blob sent to every recipient, unique-actor attribution and %-based CTR
+both read as more precise than the data actually supports. Don't reintroduce rate
+math without being asked.
 
-## URL / API contracts (FROZEN after Phase 1)
+## URL / API contracts (FROZEN after Phase 1, extended since)
 - Pixel:    `GET /api/track/open/{openToken}?r={recipientId?}` → 1×1 gif, no-store; logs OpenEvent.
 - Click:    `GET /api/track/click/{linkToken}?u={encodedOriginal}&r={recipientId?}` → 302 to Link.originalUrl (fallback `u=` only if token unknown); logs ClickEvent.
 - Process:  `POST /api/process {name, html, sentCount}` → `{ id, processedHtml, linkCount }`.
 - List:     `GET /api/campaigns` → campaigns newest-first with `_count {opens,clicks,links}`.
+- Get:      `GET /api/campaigns/{id}` → `CampaignDetail` (via `loadCampaign`) or 404.
 - Sent:     `POST /api/campaigns/{id}/sent {sentCount}` → `{ ok: true }`.
+- Update:   `PATCH /api/campaigns/{id} {name?, html?}` → `{ ok: true, linkCount }`. `html`
+  reprocesses through `transformHtml` with the *same* `openToken` (open history stays
+  valid) but deletes+recreates every `Link` row, cascading away that campaign's
+  `ClickEvent`s — old link tokens no longer exist in the new HTML, so their click
+  history can't be kept. Documented in the UI, not silent.
+- Delete:   `DELETE /api/campaigns/{id}` → `{ ok: true }`. Cascades to links/opens/clicks.
 
 Rewritten link href = `${baseUrl}/api/track/click/${token}?u=${encodeURIComponent(originalHref)}`.
 Pixel `<img>` appended before `</body>`, hidden, 1×1. Skip `mailto:`/`tel:`/`#`/relative/`data-no-track`.
-
-## Rates
-open rate = uniqueOpens/sent · CTR = uniqueClicks/sent · CTOR = uniqueClicks/uniqueOpens.
-`sent` is entered manually (you send from Carbonio; the app can't count sends).
 
 ## Design system — LIGHT THEME ONLY (source of truth: `design-system.md`)
 Modern, sleek, minimal, professional — enterprise SaaS. The full spec (palette,
