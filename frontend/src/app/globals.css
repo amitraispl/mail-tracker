@@ -1,0 +1,149 @@
+/* ==========================================================================
+   Mail Tracker — design tokens (light theme only).
+   Source of truth: design-system.md. Do not edit after Phase 1.
+   ========================================================================== */
+
+:root{
+  /* primary */
+  --color-primary:#B41F3C; --color-primary-hover:#9E1B35; --color-primary-active:#7F162A;
+  /* background */
+  --color-bg:#FFFFFF; --color-surface:#F5F5F5; --color-surface-alt:#E3E3E3;
+  /* text */
+  --color-text-primary:#15161A; --color-text-secondary:#555555; --color-text-muted:#888888; --color-text-inverse:#FFFFFF;
+  /* accent (sparingly: tags, badges, highlights) */
+  --color-accent-light:#DD4C68; --color-accent-muted:#D6A6A7; --color-accent-dark:#B74E4E;
+  /* borders */
+  --color-border:#E3E3E3; --color-border-strong:#C1C1C1;
+  /* states */
+  --color-success:#2E7D32; --color-warning:#ED6C02; --color-error:#D32F2F;
+  /* type */
+  --font-sans:"Inter","SF Pro Display","Segoe UI",Roboto,sans-serif;
+  --font-mono:"JetBrains Mono","Fira Code",monospace;
+  --text-xs:12px; --text-sm:14px; --text-md:16px; --text-lg:20px; --text-xl:24px; --text-2xl:32px; --text-3xl:40px;
+  --weight-regular:400; --weight-medium:500; --weight-semibold:600; --weight-bold:700;
+  /* spacing */
+  --space-1:4px; --space-2:8px; --space-3:16px; --space-4:24px; --space-5:32px; --space-6:48px; --space-7:64px;
+  /* radius */
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+  /* shadow */
+  --shadow-sm:0 1px 2px rgba(0,0,0,.05); --shadow-md:0 4px 8px rgba(0,0,0,.08); --shadow-lg:0 10px 20px rgba(0,0,0,.12);
+}
+
+/* next/font wires the real families in front of the stacks above. */
+:root{
+  --font-sans:var(--font-inter),"Inter","SF Pro Display","Segoe UI",Roboto,sans-serif;
+  --font-mono:var(--font-jetbrains-mono),"JetBrains Mono","Fira Code",monospace;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+*,*::before,*::after{box-sizing:border-box;}
+
+html{-webkit-text-size-adjust:100%;}
+
+body{
+  margin:0;
+  /* page ground is the soft surface tone, not white — lets white cards read as lifted.
+     A faint fixed dot grid gives the ground quiet texture (instrument-panel, not decorative)
+     without competing with content; it never scrolls with the page. */
+  background-color:var(--color-surface);
+  background-image:radial-gradient(rgba(0,0,0,.06) 1px,transparent 1px);
+  background-size:24px 24px;
+  background-attachment:fixed;
+  color:var(--color-text-secondary);
+  font-family:var(--font-sans);
+  font-size:var(--text-md);
+  font-weight:var(--weight-regular);
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+h1,h2,h3,h4,h5,h6{
+  margin:0 0 var(--space-3);
+  color:var(--color-text-primary);
+  font-weight:var(--weight-semibold);
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+h1{font-size:var(--text-2xl);}
+h2{font-size:var(--text-xl);}
+h3{font-size:var(--text-lg);}
+h4,h5,h6{font-size:var(--text-md);}
+
+p{margin:0 0 var(--space-3);}
+p:last-child{margin-bottom:0;}
+
+small{font-size:var(--text-sm);}
+
+a{
+  color:var(--color-primary);
+  text-decoration:none;
+}
+a:hover{color:var(--color-primary-hover);text-decoration:underline;}
+a:active{color:var(--color-primary-active);}
+
+code,kbd,pre,samp{font-family:var(--font-mono);font-size:var(--text-sm);}
+
+hr{border:0;border-top:1px solid var(--color-border);margin:var(--space-5) 0;}
+
+img,svg,video{max-width:100%;height:auto;}
+
+/* Inputs inherit the body font instead of the UA default. */
+button,input,select,textarea{font:inherit;color:inherit;}
+
+/* Visible keyboard focus everywhere (a11y): never remove without a replacement. */
+:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:2px;
+  border-radius:var(--radius-sm);
+}
+
+::selection{background:var(--color-accent-muted);color:var(--color-text-primary);}
+
+/* --------------------------------------------------------------------------
+   Layout helpers (shared by every page)
+   -------------------------------------------------------------------------- */
+
+.container{
+  width:100%;
+  max-width:1120px;
+  margin:0 auto;
+  padding:0 var(--space-4);
+}
+
+.section{padding:var(--space-6) 0;}
+
+.stack{display:flex;flex-direction:column;gap:var(--space-4);}
+
+.grid{display:grid;gap:var(--space-4);}
+
+/* Screen-reader-only text. */
+.visually-hidden{
+  position:absolute;
+  width:1px;height:1px;
+  padding:0;margin:-1px;
+  overflow:hidden;
+  clip:rect(0 0 0 0);
+  white-space:nowrap;
+  border:0;
+}
+
+.mono{font-family:var(--font-mono);}
+.tabular{font-variant-numeric:tabular-nums;}
+
+@media (max-width:640px){
+  .container{padding:0 var(--space-3);}
+  .section{padding:var(--space-5) 0;}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+    scroll-behavior:auto !important;
+  }
+}

@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Campaign {
+  id            String   @id @default(cuid())
+  name          String
+  openToken     String   @unique
+  sentCount     Int      @default(0)
+  createdAt     DateTime @default(now())
+  processedHtml String?
+
+  links  Link[]
+  opens  OpenEvent[]
+  clicks ClickEvent[]
+}
+
+model Link {
+  id          String  @id @default(cuid())
+  token       String  @unique
+  originalUrl String
+  label       String?
+  campaignId  String
+
+  campaign Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  clicks   ClickEvent[]
+
+  @@index([campaignId])
+}
+
+model OpenEvent {
+  id           String   @id @default(cuid())
+  campaignId   String
+  recipientRef String?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+model ClickEvent {
+  id           String   @id @default(cuid())
+  linkId       String
+  campaignId   String
+  recipientRef String?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  link     Link     @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([linkId])
+}
+
+/// A logged-in operator. Accounts are created only via the create-user CLI
+/// script (see README) — there is no self-registration or in-app user admin.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  refreshTokens RefreshToken[]
+}
+
+/// One row per issued refresh token, so a token can be individually revoked
+/// and reuse of an already-rotated token can be detected (see lib/tokens.ts).
+/// The token value itself is never stored — only its SHA-256 hash.
+model RefreshToken {
+  id               String    @id @default(cuid())
+  userId           String
+  tokenHash        String    @unique
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  revokedAt        DateTime?
+  replacedByTokenId String?
+  userAgent        String?
+  ip               String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

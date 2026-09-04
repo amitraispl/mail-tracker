@@ -1,0 +1,28 @@
+.wrap{
+  display:flex;
+  justify-content:center;
+}
+
+.panel{
+  width:100%;
+  max-width:480px;
+}
+
+.form{
+  display:flex;
+  flex-direction:column;
+  gap:var(--space-4);
+}
+
+.divider{
+  margin:var(--space-1) 0;
+  border-top:1px solid var(--color-border);
+}
+
+.status{
+  margin:0;
+  font-size:var(--text-sm);
+  color:var(--color-text-muted);
+}
+
+.statusError{color:var(--color-error);}

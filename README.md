@@ -1,112 +1,174 @@
 # Mail Tracker
 
-Self-hosted Next.js 15 app that tracks **open rate** and **per-link click-through
-rate** for HTML emails sent from Carbonio. User pastes/uploads HTML, app injects a
-tracking pixel + rewrites links, user pastes tracked HTML back into Carbonio, opens
-and clicks log to Postgres, dashboard shows rates.
+Self-hosted app that tracks **total opens** and **per-link click counts** for HTML
+emails sent from Carbonio. User pastes/uploads HTML, the backend injects a tracking
+pixel + rewrites links, user pastes the tracked HTML back into Carbonio, opens and
+clicks log to Postgres, the dashboard shows raw totals (no rate/percentage math —
+one shared HTML blob per campaign makes that read as more precise than it is).
 
-App code lives in **`app/`** (root has no `package.json` — always run commands from
-`app/`).
+Two services, two directories:
+
+```
+mail-tracker/
+  frontend/   Next.js 15 UI. No DB access, no secrets beyond a JWT verify key.
+  backend/    Node + Express + Prisma API. Owns the DB, the tracking endpoints,
+              and auth (JWT access token + rotating refresh token).
+```
+
+Root has no `package.json` — always run commands from `frontend/` or `backend/`.
 
 ## Stack
-- Next.js 15 (App Router, TypeScript, React 19), run as a **Node server** (not
-  static export) — has API routes + middleware.
-- Postgres via Prisma (`app/prisma/schema.prisma`). Built for Neon but any Postgres
-  works — only a connection string is needed.
-- Single shared-password auth (cookie session, see `src/lib/auth.ts` +
-  `src/middleware.ts`). No user accounts, no OAuth.
+- **Frontend**: Next.js 15 (App Router, TypeScript, React 19), `jose` for JWT
+  verification in middleware.
+- **Backend**: Node ≥20, TypeScript, Express, Prisma → Postgres (built for Neon,
+  any Postgres works — just a connection string), `bcryptjs` for password hashing,
+  `jose` for JWT.
+- **Auth**: named accounts (email + bcrypt-hashed password), not a shared password.
+  Access token = short-lived JWT in an httpOnly cookie (15 min). Refresh token =
+  opaque random value in a separate httpOnly cookie (30 days), stored **hashed** in
+  the DB, **rotated on every use** — replaying an already-rotated token revokes
+  every session for that user (theft detection).
 
 ## Required environment variables
 
+**`backend/.env`** (template at `backend/.env.example`):
+
 | Var | Example | Notes |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://user:pass@host/db?sslmode=require` | Postgres connection string. If using Neon, use the **pooled** connection string. |
-| `NEXT_PUBLIC_BASE_URL` | `https://track.illumiasolutions.com` | Public HTTPS origin. Baked into the pixel/redirect URLs written into every tracked email — **must be the real public domain before any email is sent**, not `localhost`. |
-| `APP_PASSWORD` | (pick a strong secret) | Shared password gating the whole app except `/api/track/*`, `/login`, `/api/auth/*`. If unset, app fails closed (503) rather than opening up — see `src/middleware.ts`. |
+| `DATABASE_URL` | `postgresql://user:pass@host/db?sslmode=require` | Postgres connection string (Neon: use the **pooled** string). |
+| `PUBLIC_TRACK_BASE_URL` | `https://api.illumiasolutions.com` | The backend's own public host — baked into every tracked email's pixel/link URLs. Must be real HTTPS before any email is sent. |
+| `FRONTEND_ORIGIN` | `https://app.illumiasolutions.com` | Frontend's origin(s), comma-separated if more than one. Drives CORS for credentialed requests. |
+| `JWT_ACCESS_SECRET` | (long random string) | Signs access-token JWTs. Generate: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
+| `COOKIE_DOMAIN` | `.illumiasolutions.com` (prod) / empty (local dev) | See "Cookie domain" below. |
+| `PORT` | `4000` | |
+| `NODE_ENV` | `production` | Controls `Secure` cookie flag. |
 
-No other env vars — don't invent any. Template at `app/.env.example`.
+**`frontend/.env`** (template at `frontend/.env.example`):
 
-## Build & run
+| Var | Example | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `https://api.illumiasolutions.com` | Backend's public base URL. Exposed to the browser — client components call it directly. |
+| `JWT_ACCESS_SECRET` | (same value as backend's) | **Must match the backend exactly.** Used only to verify (never sign) the access token, for redirect UX in `middleware.ts` — the backend is still the real enforcement point. |
+
+No other env vars in either service — don't invent any.
+
+## Cookie domain — read this before deploying
+
+Login sets two httpOnly cookies (`mt_access`, `mt_refresh`) on the **backend's**
+response. For the frontend's own server-side requests and the browser's direct
+calls to the backend to both see them, frontend and backend need to share a
+registrable domain:
+
+- **Local dev**: backend on `localhost:4000`, frontend on `localhost:3000` — same
+  host (`localhost`), different ports. Cookies aren't port-scoped, so leave
+  `COOKIE_DOMAIN` empty and it just works.
+- **Production**: use two **subdomains of one domain** — e.g.
+  `app.illumiasolutions.com` (frontend) + `api.illumiasolutions.com` (backend) —
+  and set `COOKIE_DOMAIN=".illumiasolutions.com"`. Subdomains of the same domain
+  are "same-site", so `SameSite=Lax` cookies work across them with no CORS-cookie
+  drama.
+- **Avoid** putting frontend and backend on two *unrelated* top-level domains
+  (`mailtracker.app` + `mailtracker-api.io`) — that's genuinely cross-site, forces
+  `SameSite=None`, and some browsers (Safari by default, Chrome incrementally)
+  block that kind of third-party cookie outright. Don't fight this; use subdomains.
+
+## Creating a user account
+
+There is **no self-registration and no in-app user-management UI** — that was a
+deliberate scope decision (single small team, internal tool). The only way to
+create or reset an account is the backend's CLI script:
 
 ```bash
-cd app
-npm ci
-npm run build     # runs `prisma generate` via postinstall
-npx prisma db push   # push schema.prisma to the target DB (first deploy + any schema change)
-npm start          # next start, defaults to port 3000
+cd backend
+npm run create-user -- --email you@illumiasolutions.com --password "a strong password"
 ```
 
-- `npm run dev` — local dev only.
-- `npm run lint` — eslint.
-- `npm test` — runs `scripts/test-transform.mjs` (unit test for the HTML transform logic, no DB needed).
-- There is no separate DB migration history (`prisma db push`, not `migrate`) —
-  schema changes are applied directly. Fine for this app's size; just know a push
-  can be destructive if a column is dropped/renamed, so check `prisma db push`'s
-  diff output before confirming on prod.
+Run it again with the same email to reset that account's password. Requires
+`DATABASE_URL` to be set (reads `backend/.env`).
+
+## Local dev
+
+```bash
+# terminal 1 — backend
+cd backend
+npm install
+npx prisma db push        # first run + any schema change
+npm run create-user -- --email you@example.com --password "a strong password"
+npm run dev                # http://localhost:4000
+
+# terminal 2 — frontend
+cd frontend
+npm install
+npm run dev                # http://localhost:3000
+```
+
+Visit `http://localhost:3000` → redirects to `/login` → sign in with the account
+you created.
+
+- `npm run lint` (frontend) — eslint.
+- `npm test` (backend) — runs `scripts/test-transform.mjs`, a unit test for the
+  HTML transform logic (no DB needed).
+- `npm run build` in either dir builds it; backend also needs `npm start` (runs
+  compiled `dist/server.js`) vs frontend's `next start`.
+- No DB migration history (`prisma db push`, not `migrate`) — fine at this size;
+  check the diff output before confirming on prod, a push can drop columns.
 
 ## Deploying
 
-Any host that runs a persistent Node process works (this is **not** a static
-site — it needs a live Node server for API routes + middleware). Two common paths:
+Both services need a persistent Node process (not static hosting). Point a reverse
+proxy (nginx/Caddy) or your PaaS's routing at each:
 
-**Option A — plain Node / PM2 / systemd on a VM**
+- `api.yourdomain.com` → `backend` (`npm start`, respects `PORT`)
+- `app.yourdomain.com` → `frontend` (`npm start`, respects `PORT`)
+
+**Backend**
 ```bash
-cd app
+cd backend
+npm ci
+npm run build     # runs `prisma generate` via postinstall, then tsc
+npx prisma db push
+npm run create-user -- --email you@example.com --password "..."   # first deploy only
+npm start
+```
+
+**Frontend**
+```bash
+cd frontend
 npm ci
 npm run build
-npx prisma db push
-# then run persistently, e.g.:
-pm2 start npm --name mail-tracker -- start
-# or a systemd unit that runs: npm start   (working dir = app/, env vars above set)
+npm start
 ```
-Put a reverse proxy (nginx/Caddy) in front for TLS, pointing at `127.0.0.1:3000`
-(or whatever `PORT` you set — Next respects `PORT` env var).
 
-**Option B — Docker**
-No Dockerfile is checked in yet. If containerizing, standard Next.js 15
-standalone-output Dockerfile works — ask the dev to add
-`output: "standalone"` to `next.config.ts` first (currently not set), then:
-```dockerfile
-FROM node:20-alpine AS build
-WORKDIR /app
-COPY app/package*.json ./
-RUN npm ci
-COPY app/ .
-RUN npm run build
-
-FROM node:20-alpine
-WORKDIR /app
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
-ENV PORT=3000
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-Run `npx prisma db push` once against the target DB before first start (from a
-machine/container with the same `DATABASE_URL` and `app/node_modules` present —
-migrations are not run automatically on boot).
-
-**Option C — Vercel / similar PaaS**
-Works out of the box (it's a stock Next.js app) — set the three env vars above in
-the platform's dashboard, set root directory to `app/`, and it'll run
-`npm ci && npm run build` automatically. Run `npx prisma db push` once from your
-own machine pointed at the same `DATABASE_URL` (or add it as a build step).
+Run each persistently (pm2/systemd/your PaaS's process manager) — same pattern
+either way, just two processes instead of one.
 
 ## Post-deploy checklist
-1. `DATABASE_URL`, `NEXT_PUBLIC_BASE_URL` (real HTTPS domain), `APP_PASSWORD` set.
-2. `npx prisma db push` run against that `DATABASE_URL`.
-3. Visit the domain → should redirect to `/login` → log in with `APP_PASSWORD`.
-4. Create a test campaign, confirm the tracked HTML's pixel/link URLs use the real
-   domain (not localhost) before it's pasted into Carbonio and sent to real
-   recipients.
-5. `/api/track/open/*` and `/api/track/click/*` must stay reachable **without**
-   auth (mail clients hit them directly) — don't put them behind anything that
-   requires the login cookie or IP allowlisting recipients wouldn't have.
+1. Backend env vars set (`DATABASE_URL`, `PUBLIC_TRACK_BASE_URL` = backend's real
+   HTTPS domain, `FRONTEND_ORIGIN` = frontend's real HTTPS domain,
+   `JWT_ACCESS_SECRET`, `COOKIE_DOMAIN` = shared parent domain, `NODE_ENV=production`).
+2. Frontend env vars set (`NEXT_PUBLIC_API_URL` = backend's real domain,
+   `JWT_ACCESS_SECRET` = **exact same value** as the backend's).
+3. `npx prisma db push` run against the production `DATABASE_URL`.
+4. At least one user created via `npm run create-user`.
+5. Visit the frontend domain → redirects to `/login` → sign in works, session
+   persists across a reload.
+6. Create a test campaign, confirm the tracked HTML's pixel/link URLs use the
+   backend's real domain (not localhost) before it's pasted into Carbonio and sent
+   to real recipients.
+7. `{backend}/api/track/open/*` and `{backend}/api/track/click/*` must stay
+   reachable **without** auth (mail clients hit them directly) — don't put them
+   behind anything that requires a login cookie or IP allowlisting recipients
+   wouldn't have. They already skip the backend's `authenticate` middleware by
+   design; don't add auth to them.
 
 ## Notes for whoever runs this long-term
-- No file storage / uploads — everything (processed HTML, stats) lives in Postgres.
-- No background jobs / cron — all work happens synchronously on request.
+- No file storage/uploads — everything (processed HTML, stats, accounts) lives in
+  Postgres.
+- No background jobs/cron — all work happens synchronously on request.
 - No plain-text email path — only HTML campaigns are supported by design.
-- `sentCount` is entered manually in the UI (app can't see actual sends from
-  Carbonio), so open/click rates are only as accurate as that number.
+- `sentCount` is entered manually in the UI (neither service can see actual sends
+  from Carbonio), so totals are only as accurate as that number.
+- Numbers shown are raw totals, not unique/deduplicated — see `backend/CLAUDE.md`
+  for why that was a deliberate call.
+- Refresh-token reuse (a replayed/stolen cookie) revokes every session for that
+  user, forcing a fresh login everywhere — this is intentional, not a bug.
