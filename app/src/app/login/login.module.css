@@ -1,0 +1,28 @@
+.wrap{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:60vh;
+}
+
+.panel{
+  width:100%;
+  max-width:420px;
+}
+
+.form{
+  display:flex;
+  flex-direction:column;
+  gap:var(--space-4);
+}
+
+.error{
+  margin:0;
+  padding:var(--space-2) var(--space-3);
+  background:var(--color-surface);
+  border-left:2px solid var(--color-error);
+  border-radius:var(--radius-sm);
+  color:var(--color-error);
+  font-size:var(--text-sm);
+  font-weight:var(--weight-medium);
+}
