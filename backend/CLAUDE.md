@@ -89,11 +89,17 @@ Pixel `<img>` appended before `</body>`, hidden, 1×1. Skip `mailto:`/`tel:`/`#`
 
 ## CORS / cookies
 `FRONTEND_ORIGIN` drives CORS (`credentials: true`, explicit origin — never `*`
-with credentials). `COOKIE_DOMAIN` controls cookie scope: empty = host-only
-(correct for local dev on `localhost`, where port doesn't matter for cookie
-matching); in production set it to the shared parent domain (e.g.
-`.illumiasolutions.com`) so the cookie is readable across both the `app.` and `api.`
-subdomains — same-site, so `SameSite=Lax` is enough, no need for `SameSite=None`.
+with credentials). `COOKIE_DOMAIN` controls cookie scope: empty = host-only.
+Two deployment shapes:
+- **Shared parent domain** (e.g. `app.illumiasolutions.com` + `api.illumiasolutions.com`):
+  set `COOKIE_DOMAIN=".illumiasolutions.com"` so the cookie is readable across
+  both subdomains — same-site, `SameSite=Lax` is enough.
+- **Unrelated domains** (current prod: Vercel frontend + Render backend, no
+  shared parent): leave `COOKIE_DOMAIN=""` (there's no parent to scope to) and
+  rely on `sameSite: "none"` (see `lib/cookies.ts` `sameSitePolicy()`, prod-only
+  since `SameSite=None` requires `secure: true`/HTTPS) plus CORS to deliver the
+  cookie cross-site.
+Local dev is always host-only + `SameSite=Lax` over plain http.
 
 ## Environment
 See `.env.example` for the full list with explanations: `DATABASE_URL`,
