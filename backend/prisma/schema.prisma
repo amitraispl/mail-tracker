@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -13,7 +13,7 @@ model Campaign {
   openToken     String   @unique
   sentCount     Int      @default(0)
   createdAt     DateTime @default(now())
-  processedHtml String?
+  processedHtml String?  @db.LongText
 
   links  Link[]
   opens  OpenEvent[]
@@ -23,7 +23,7 @@ model Campaign {
 model Link {
   id          String  @id @default(cuid())
   token       String  @unique
-  originalUrl String
+  originalUrl String  @db.Text
   label       String?
   campaignId  String
 
@@ -38,7 +38,7 @@ model OpenEvent {
   campaignId   String
   recipientRef String?
   ip           String?
-  userAgent    String?
+  userAgent    String?  @db.Text
   createdAt    DateTime @default(now())
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -52,7 +52,7 @@ model ClickEvent {
   campaignId   String
   recipientRef String?
   ip           String?
-  userAgent    String?
+  userAgent    String?  @db.Text
   createdAt    DateTime @default(now())
 
   link     Link     @relation(fields: [linkId], references: [id], onDelete: Cascade)

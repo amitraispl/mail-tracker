@@ -13,6 +13,7 @@ import {
 import { CampaignControls } from "./CampaignControls";
 import { CampaignEditor } from "./CampaignEditor";
 import { DeleteCampaign } from "./DeleteCampaign";
+import { RefreshButton } from "./RefreshButton";
 import styles from "./dashboard.module.css";
 
 export const dynamic = "force-dynamic";
@@ -84,9 +85,12 @@ export default async function CampaignDashboardPage({
           </span>
         }
         actions={
-          <Link href="/" className={buttonClassName("secondary")}>
-            All campaigns
-          </Link>
+          <>
+            <RefreshButton />
+            <Link href="/" className={buttonClassName("secondary")}>
+              All campaigns
+            </Link>
+          </>
         }
       />
 

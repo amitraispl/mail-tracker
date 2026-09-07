@@ -30,6 +30,7 @@ export function CampaignControls({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,6 +75,18 @@ export function CampaignControls({
     URL.revokeObjectURL(url);
   }
 
+  async function copy() {
+    if (!processedHtml) return;
+    setError(null);
+    try {
+      await navigator.clipboard.writeText(processedHtml);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Could not copy — your browser blocked clipboard access.");
+    }
+  }
+
   return (
     <form onSubmit={save} noValidate>
       <div className={styles.controls}>
@@ -91,6 +104,18 @@ export function CampaignControls({
         </div>
         <Button type="submit" variant="secondary" disabled={saving}>
           {saving ? "Saving…" : "Save"}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={copy}
+          disabled={!processedHtml}
+          title={
+            processedHtml
+              ? undefined
+              : "No tracked HTML stored for this campaign."
+          }
+        >
+          {copied ? "Copied!" : "Copy HTML"}
         </Button>
         <Button
           variant="secondary"

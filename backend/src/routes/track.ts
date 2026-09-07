@@ -14,7 +14,8 @@ interface TrackingContext {
 /** Optional `?r=` recipient identifier the sender embedded in the URL. */
 function readTrackingContext(req: Request): TrackingContext {
   const forwardedFor = req.get("x-forwarded-for");
-  const ip = forwardedFor?.split(",")[0]?.trim() || req.get("x-real-ip") || null;
+  const ip =
+    forwardedFor?.split(",")[0]?.trim() || req.get("x-real-ip") || req.ip || null;
   const r = req.query.r;
   const recipientRef = typeof r === "string" ? r.trim() || null : null;
   return { ip: ip || null, userAgent: req.get("user-agent") ?? null, recipientRef };

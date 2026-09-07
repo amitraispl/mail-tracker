@@ -26,6 +26,24 @@ export const authRouter = Router();
 const FAILURE_DELAY_MS = 400;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * A stuck DB connection (e.g. Aiven MySQL under connection pressure) can hang
+ * a query forever with nothing thrown and nothing logged. Race it against a
+ * timeout so a hang surfaces as a loud 503 instead of a silently dead request.
+ */
+const DB_TIMEOUT_MS = 8000;
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Timed out after ${DB_TIMEOUT_MS}ms: ${label}`)),
+        DB_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+}
+
 function requestMeta(req: Request): RequestMeta {
   return {
     userAgent: req.get("user-agent") ?? null,
@@ -49,24 +67,33 @@ authRouter.post("/login", async (req, res) => {
     return;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
-  });
-  const valid = user ? await verifyPassword(password, user.passwordHash) : false;
+  try {
+    const user = await withTimeout(
+      prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } }),
+      "find user",
+    );
+    const valid = user ? await verifyPassword(password, user.passwordHash) : false;
 
-  if (!user || !valid) {
-    await sleep(FAILURE_DELAY_MS);
-    res.status(401).json({ error: "Incorrect email or password." });
-    return;
+    if (!user || !valid) {
+      await sleep(FAILURE_DELAY_MS);
+      res.status(401).json({ error: "Incorrect email or password." });
+      return;
+    }
+
+    const accessToken = await signAccessToken(user.id);
+    const refresh = await withTimeout(
+      issueRefreshToken(user.id, requestMeta(req)),
+      "issue refresh token",
+    );
+
+    setAccessCookie(res, accessToken, ACCESS_TOKEN_TTL_SECONDS);
+    setRefreshCookie(res, refresh.token, REFRESH_TOKEN_TTL_SECONDS);
+
+    res.json({ ok: true, user: { id: user.id, email: user.email } });
+  } catch (error) {
+    console.error("[auth/login] failed", error);
+    res.status(503).json({ error: "Login is temporarily unavailable. Try again." });
   }
-
-  const accessToken = await signAccessToken(user.id);
-  const refresh = await issueRefreshToken(user.id, requestMeta(req));
-
-  setAccessCookie(res, accessToken, ACCESS_TOKEN_TTL_SECONDS);
-  setRefreshCookie(res, refresh.token, REFRESH_TOKEN_TTL_SECONDS);
-
-  res.json({ ok: true, user: { id: user.id, email: user.email } });
 });
 
 authRouter.post("/refresh", async (req, res) => {
@@ -76,45 +103,65 @@ authRouter.post("/refresh", async (req, res) => {
     return;
   }
 
-  const check = await checkRefreshToken(token);
-  if (!check.ok) {
-    clearAuthCookies(res);
-    res.status(401).json({ error: "Session expired, please log in again." });
-    return;
+  try {
+    const check = await withTimeout(checkRefreshToken(token), "check refresh token");
+    if (!check.ok) {
+      clearAuthCookies(res);
+      res.status(401).json({ error: "Session expired, please log in again." });
+      return;
+    }
+
+    const next = await withTimeout(
+      rotateRefreshToken(check.refreshTokenId, check.userId, requestMeta(req)),
+      "rotate refresh token",
+    );
+    const accessToken = await signAccessToken(check.userId);
+
+    setAccessCookie(res, accessToken, ACCESS_TOKEN_TTL_SECONDS);
+    setRefreshCookie(res, next.token, REFRESH_TOKEN_TTL_SECONDS);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[auth/refresh] failed", error);
+    res.status(503).json({ error: "Session refresh is temporarily unavailable." });
   }
-
-  const next = await rotateRefreshToken(
-    check.refreshTokenId,
-    check.userId,
-    requestMeta(req),
-  );
-  const accessToken = await signAccessToken(check.userId);
-
-  setAccessCookie(res, accessToken, ACCESS_TOKEN_TTL_SECONDS);
-  setRefreshCookie(res, next.token, REFRESH_TOKEN_TTL_SECONDS);
-
-  res.json({ ok: true });
 });
 
 authRouter.post("/logout", async (req, res) => {
-  const token = req.cookies?.[REFRESH_COOKIE];
-  if (typeof token === "string" && token) {
-    await revokeRefreshToken(token);
+  try {
+    const token = req.cookies?.[REFRESH_COOKIE];
+    if (typeof token === "string" && token) {
+      await withTimeout(revokeRefreshToken(token), "revoke refresh token");
+    }
+    clearAuthCookies(res);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[auth/logout] failed", error);
+    // Clear cookies regardless — client should be able to drop its session
+    // even if the DB revoke failed.
+    clearAuthCookies(res);
+    res.status(503).json({ error: "Logout is temporarily unavailable." });
   }
-  clearAuthCookies(res);
-  res.json({ ok: true });
 });
 
 authRouter.get("/me", authenticate, async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.userId! },
-    select: { id: true, email: true },
-  });
-  if (!user) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+  try {
+    const user = await withTimeout(
+      prisma.user.findUnique({
+        where: { id: req.userId! },
+        select: { id: true, email: true },
+      }),
+      "find user",
+    );
+    if (!user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    res.json(user);
+  } catch (error) {
+    console.error("[auth/me] failed", error);
+    res.status(503).json({ error: "Temporarily unavailable." });
   }
-  res.json(user);
 });
 
 /**
@@ -150,42 +197,62 @@ authRouter.patch("/me", authenticate, async (req, res) => {
     return;
   }
 
-  const user = await prisma.user.findUnique({ where: { id: req.userId! } });
-  if (!user) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  const valid = await verifyPassword(currentPassword, user.passwordHash);
-  if (!valid) {
-    await sleep(FAILURE_DELAY_MS);
-    res.status(401).json({ error: "Current password is incorrect." });
-    return;
-  }
-
-  if (nextEmail && nextEmail !== user.email) {
-    const existing = await prisma.user.findUnique({ where: { email: nextEmail } });
-    if (existing && existing.id !== user.id) {
-      res.status(409).json({ error: "That email is already in use." });
+  try {
+    const user = await withTimeout(
+      prisma.user.findUnique({ where: { id: req.userId! } }),
+      "find user",
+    );
+    if (!user) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
+
+    const valid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!valid) {
+      await sleep(FAILURE_DELAY_MS);
+      res.status(401).json({ error: "Current password is incorrect." });
+      return;
+    }
+
+    if (nextEmail && nextEmail !== user.email) {
+      const existing = await withTimeout(
+        prisma.user.findUnique({ where: { email: nextEmail } }),
+        "check email in use",
+      );
+      if (existing && existing.id !== user.id) {
+        res.status(409).json({ error: "That email is already in use." });
+        return;
+      }
+    }
+
+    const data: { email?: string; passwordHash?: string } = {};
+    if (nextEmail && nextEmail !== user.email) data.email = nextEmail;
+    if (nextPassword) data.passwordHash = await hashPassword(nextPassword);
+
+    const updated = await withTimeout(
+      prisma.user.update({ where: { id: user.id }, data }),
+      "update user",
+    );
+
+    if (nextPassword) {
+      // Password changed: kill every other session, then issue a fresh pair
+      // for this one so the tab that just did this doesn't get logged out too.
+      await withTimeout(
+        revokeAllRefreshTokensForUser(user.id),
+        "revoke all refresh tokens",
+      );
+      const accessToken = await signAccessToken(user.id);
+      const refresh = await withTimeout(
+        issueRefreshToken(user.id, requestMeta(req)),
+        "issue refresh token",
+      );
+      setAccessCookie(res, accessToken, ACCESS_TOKEN_TTL_SECONDS);
+      setRefreshCookie(res, refresh.token, REFRESH_TOKEN_TTL_SECONDS);
+    }
+
+    res.json({ ok: true, user: { id: updated.id, email: updated.email } });
+  } catch (error) {
+    console.error("[auth/patch-me] failed", error);
+    res.status(503).json({ error: "Profile update is temporarily unavailable." });
   }
-
-  const data: { email?: string; passwordHash?: string } = {};
-  if (nextEmail && nextEmail !== user.email) data.email = nextEmail;
-  if (nextPassword) data.passwordHash = await hashPassword(nextPassword);
-
-  const updated = await prisma.user.update({ where: { id: user.id }, data });
-
-  if (nextPassword) {
-    // Password changed: kill every other session, then issue a fresh pair
-    // for this one so the tab that just did this doesn't get logged out too.
-    await revokeAllRefreshTokensForUser(user.id);
-    const accessToken = await signAccessToken(user.id);
-    const refresh = await issueRefreshToken(user.id, requestMeta(req));
-    setAccessCookie(res, accessToken, ACCESS_TOKEN_TTL_SECONDS);
-    setRefreshCookie(res, refresh.token, REFRESH_TOKEN_TTL_SECONDS);
-  }
-
-  res.json({ ok: true, user: { id: updated.id, email: updated.email } });
 });

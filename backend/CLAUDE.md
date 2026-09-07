@@ -4,7 +4,7 @@ Project context for every Claude Code session in this directory. **Read before e
 
 ## What this is
 The **API + data + auth** half of Mail Tracker — a Node + TypeScript + Express
-service backing the sibling **`../frontend`** Next.js UI. Owns the Postgres DB
+service backing the sibling **`../frontend`** Next.js UI. Owns the MySQL DB
 (Prisma), the tracking pixel/redirect endpoints recipients hit directly, campaign
 CRUD, and JWT-based auth. The frontend has zero DB access — everything goes through
 this service's HTTP API.
@@ -12,7 +12,11 @@ this service's HTTP API.
 ## Stack
 - Node ≥20, TypeScript (ESM, `NodeNext` module resolution — relative imports need
   `.js` extensions even though the source files are `.ts`), Express 4.
-- Prisma ORM → Postgres (built for Neon, any Postgres works via `DATABASE_URL`).
+- Prisma ORM → MySQL (built for/tested on Aiven's managed MySQL; any MySQL
+  8+/MariaDB works via `DATABASE_URL`). Long-content fields (`processedHtml`,
+  `originalUrl`, `userAgent`) use `@db.LongText`/`@db.Text` in schema.prisma —
+  MySQL's default `String` is `VARCHAR(191)` and would silently truncate
+  campaign HTML otherwise. Don't remove those annotations.
 - `cheerio` for HTML parsing, `nanoid` for tokens (in `src/lib/transform.ts`).
 - `bcryptjs` for password hashing, `jose` for JWT, raw `crypto` for opaque refresh
   tokens.
