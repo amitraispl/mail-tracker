@@ -7,6 +7,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const PUBLIC_PREFIXES = ["/login"];
 
+/** Proxied straight through to the backend (see next.config.ts `rewrites()`) —
+ *  never gate these behind a redirect-to-login. The backend independently
+ *  authenticates every request regardless; redirecting an XHR/fetch call to
+ *  the HTML login page would just corrupt the caller's expected JSON response. */
+function isApi(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -49,7 +57,7 @@ function extractCookieValue(setCookieHeader: string, name: string): string | nul
  */
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  if (isPublic(pathname)) return NextResponse.next();
+  if (isPublic(pathname) || isApi(pathname)) return NextResponse.next();
 
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
   if (await isValidAccessToken(accessToken)) {

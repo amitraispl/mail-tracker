@@ -27,10 +27,19 @@ CLAUDE.md for why).
   the backend via `next/headers` `cookies()` — this is how a logged-in user's
   session carries over to a server-side fetch.
 - **Client Components** (forms, buttons — anything mutating data) call
-  `src/lib/api.ts`'s `apiFetch(path, init)`, which hits the backend directly
-  (`NEXT_PUBLIC_API_URL`) with `credentials: "include"` so the browser sends the
-  httpOnly session cookies, and transparently does one refresh-and-retry on a 401
-  (access token expired mid-session).
+  `src/lib/api.ts`'s `apiFetch(path, init)`, which fetches a **relative** `/api/...`
+  path — never the backend's origin directly — with `credentials: "include"", and
+  transparently does one refresh-and-retry on a 401 (access token expired
+  mid-session). `next.config.ts` `rewrites()` proxies that path through to the
+  backend (`NEXT_PUBLIC_API_URL`) server-side. This indirection is required, not
+  cosmetic: it's what makes the backend's Set-Cookie land as a first-party cookie
+  on *this* domain, which is the only way `middleware.ts` (reading cookies off its
+  own incoming requests) can ever see the session when frontend and backend are on
+  unrelated domains (e.g. Vercel + Render) — a cross-site Set-Cookie is invisible
+  to it no matter what cookie flags the backend sets. Server Components
+  (`lib/backend.ts`) call the backend's real origin directly instead, since they
+  forward the session cookie manually via `next/headers` rather than relying on
+  the browser's cookie jar.
 - **`middleware.ts`** gates every non-`/login` route: verifies the `mt_access` JWT
   (same secret as the backend, real signature check — not just a shape check) for
   fast redirect-to-login UX. If the access token is missing/expired but a refresh

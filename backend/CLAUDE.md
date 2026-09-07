@@ -89,17 +89,25 @@ Pixel `<img>` appended before `</body>`, hidden, 1×1. Skip `mailto:`/`tel:`/`#`
 
 ## CORS / cookies
 `FRONTEND_ORIGIN` drives CORS (`credentials: true`, explicit origin — never `*`
-with credentials). `COOKIE_DOMAIN` controls cookie scope: empty = host-only.
-Two deployment shapes:
-- **Shared parent domain** (e.g. `app.illumiasolutions.com` + `api.illumiasolutions.com`):
-  set `COOKIE_DOMAIN=".illumiasolutions.com"` so the cookie is readable across
-  both subdomains — same-site, `SameSite=Lax` is enough.
-- **Unrelated domains** (current prod: Vercel frontend + Render backend, no
-  shared parent): leave `COOKIE_DOMAIN=""` (there's no parent to scope to) and
-  rely on `sameSite: "none"` (see `lib/cookies.ts` `sameSitePolicy()`, prod-only
-  since `SameSite=None` requires `secure: true`/HTTPS) plus CORS to deliver the
-  cookie cross-site.
-Local dev is always host-only + `SameSite=Lax` over plain http.
+with credentials) — mainly a safety net now; see below. `COOKIE_DOMAIN` controls
+cookie scope: empty = host-only, always `SameSite=Lax`.
+
+Current prod (Vercel frontend + Render backend, unrelated domains, no shared
+parent): the frontend does **not** call this backend's origin directly from the
+browser for anything cookie-authenticated. Instead `frontend/next.config.ts`
+`rewrites()` proxies `/api/*` through the frontend's own domain, so Set-Cookie
+always lands as a first-party cookie there — this is what lets
+`frontend/src/middleware.ts` (which reads cookies from *its own* incoming
+requests) ever see the session. A cross-site `Set-Cookie` is invisible to that
+middleware no matter what `SameSite`/CORS is set to — that's not a config knob,
+it's how browsers partition cookies by domain. Don't try to "fix" this by
+loosening `SameSite` to `none` again; it doesn't solve the actual problem and
+was tried and reverted (see git history if this comes up again).
+
+If frontend and backend are ever put on subdomains of the same parent domain
+instead (e.g. `app.illumiasolutions.com` + `api.illumiasolutions.com`), the
+browser-direct approach becomes viable again and `COOKIE_DOMAIN` can be set to
+the shared parent (`.illumiasolutions.com`) so the cookie is readable on both.
 
 ## Environment
 See `.env.example` for the full list with explanations: `DATABASE_URL`,

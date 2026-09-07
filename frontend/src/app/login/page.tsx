@@ -3,7 +3,6 @@
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Card, Eyebrow, Field, PageHeader } from "@/components";
-import { API_URL } from "@/lib/api";
 import styles from "./login.module.css";
 
 function LoginForm() {
@@ -23,7 +22,7 @@ function LoginForm() {
     setPending(true);
     setError(null);
 
-    const response = await fetch(`${API_URL}/api/auth/login`, {
+    const response = await fetch("/api/auth/login", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

@@ -3,11 +3,13 @@ import type { Response } from "express";
 export const ACCESS_COOKIE = "mt_access";
 export const REFRESH_COOKIE = "mt_refresh";
 
-/** Empty/unset = host-only cookie. Only set this to a shared parent domain
- *  (e.g. ".illumiasolutions.com") if frontend and backend are on subdomains
- *  of the same site — leave empty when they're on unrelated domains (e.g.
- *  a Vercel frontend + a Render backend), since there's no parent domain to
- *  scope to there and cross-site delivery is handled by `sameSite`/CORS instead. */
+/** Empty/unset = host-only cookie (correct default: the frontend proxies
+ *  /api/* through its own domain — see frontend/next.config.ts `rewrites()` —
+ *  so this cookie is always first-party from the browser's perspective, even
+ *  when frontend and backend are unrelated domains like Vercel + Render).
+ *  Only set this to a shared parent domain if frontend and backend are on
+ *  subdomains of the same site AND you're calling the backend directly from
+ *  the browser instead of proxying, e.g. COOKIE_DOMAIN=".illumiasolutions.com". */
 function cookieDomain(): string | undefined {
   const domain = process.env.COOKIE_DOMAIN?.trim();
   return domain ? domain : undefined;
@@ -15,12 +17,6 @@ function cookieDomain(): string | undefined {
 
 function isProd(): boolean {
   return process.env.NODE_ENV === "production";
-}
-
-/** "none" requires `secure: true` (HTTPS-only) — browsers reject an insecure
- *  SameSite=None cookie outright. Local dev stays "lax" over plain http. */
-function sameSitePolicy(): "lax" | "none" {
-  return isProd() ? "none" : "lax";
 }
 
 export function setAccessCookie(
@@ -31,7 +27,7 @@ export function setAccessCookie(
   res.cookie(ACCESS_COOKIE, token, {
     httpOnly: true,
     secure: isProd(),
-    sameSite: sameSitePolicy(),
+    sameSite: "lax",
     domain: cookieDomain(),
     path: "/",
     maxAge: maxAgeSeconds * 1000,
@@ -48,7 +44,7 @@ export function setRefreshCookie(
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: isProd(),
-    sameSite: sameSitePolicy(),
+    sameSite: "lax",
     domain: cookieDomain(),
     path: "/api/auth",
     maxAge: maxAgeSeconds * 1000,
