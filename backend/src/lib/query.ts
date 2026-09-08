@@ -42,7 +42,7 @@ export async function loadCampaign(id: string): Promise<CampaignDetail | null> {
 
   const stats = computeStats({
     sent: campaign.sentCount,
-    totalOpens: campaign._count.opens,
+    rawOpens: campaign._count.opens,
     totalClicks: campaign._count.clicks,
   });
 

@@ -78,6 +78,35 @@
   font-size:var(--text-xs);
 }
 
+.controlWrap{position:relative;}
+
+.controlWithAdornment{padding-right:40px;}
+
+.adornment{
+  position:absolute;
+  top:50%;
+  right:6px;
+  transform:translateY(-50%);
+  display:flex;
+  align-items:center;
+}
+
+.adornmentButton{
+  appearance:none;
+  background:transparent;
+  border:none;
+  padding:6px;
+  color:var(--color-text-muted);
+  cursor:pointer;
+  line-height:0;
+  border-radius:var(--radius-sm);
+}
+.adornmentButton:hover{color:var(--color-text-secondary);}
+.adornmentButton:focus-visible{
+  outline:2px solid var(--color-primary);
+  outline-offset:1px;
+}
+
 .invalid{border-color:var(--color-error);}
 .invalid:focus{border-color:var(--color-error);outline-color:var(--color-error);}
 

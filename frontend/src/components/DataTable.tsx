@@ -60,6 +60,7 @@ export function DataTable<Row>({
                 {columns.map((col) => (
                   <td
                     key={col.key}
+                    data-label={typeof col.header === "string" ? col.header : undefined}
                     className={[
                       styles.td,
                       col.align === "right" ? styles.right : styles.left,

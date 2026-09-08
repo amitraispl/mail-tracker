@@ -31,6 +31,7 @@ export function CampaignControls({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const valueDirty = value.trim() !== "" && Number(value) !== sentCount;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -102,7 +103,12 @@ export function CampaignControls({
             onChange={(e) => setValue(e.target.value)}
           />
         </div>
-        <Button type="submit" variant="secondary" disabled={saving}>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={saving}
+          shimmer={valueDirty && !saving}
+        >
           {saving ? "Saving…" : "Save"}
         </Button>
         <Button

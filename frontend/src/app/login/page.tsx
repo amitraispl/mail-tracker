@@ -77,6 +77,7 @@ function LoginForm() {
         <Button
           type="submit"
           disabled={pending || password.length === 0 || email.length === 0}
+          shimmer={!pending && password.length > 0 && email.length > 0}
         >
           {pending ? "Signing in…" : "Sign in"}
         </Button>

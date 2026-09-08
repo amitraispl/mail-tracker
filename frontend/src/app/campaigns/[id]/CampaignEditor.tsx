@@ -20,6 +20,7 @@ export function CampaignEditor({ id, name: initialName }: CampaignEditorProps) {
   const [savingName, setSavingName] = useState(false);
   const [nameStatus, setNameStatus] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  const nameDirty = name.trim() !== initialName.trim() && name.trim().length > 0;
 
   const [replacing, setReplacing] = useState(false);
   const [source, setSource] = useState<Source>("upload");
@@ -142,7 +143,12 @@ export function CampaignEditor({ id, name: initialName }: CampaignEditorProps) {
             autoComplete="off"
           />
         </div>
-        <Button type="submit" variant="secondary" disabled={savingName}>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={savingName}
+          shimmer={nameDirty && !savingName}
+        >
           {savingName ? "Saving…" : "Save name"}
         </Button>
       </form>

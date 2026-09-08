@@ -12,6 +12,7 @@ export function RefreshButton() {
     <Button
       variant="secondary"
       disabled={pending}
+
       onClick={() => startTransition(() => router.refresh())}
     >
       {pending ? "Refreshing…" : "Refresh"}

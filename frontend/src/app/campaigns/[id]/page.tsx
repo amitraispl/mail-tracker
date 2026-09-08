@@ -102,7 +102,7 @@ export default async function CampaignDashboardPage({
                 label="Total opens"
                 value={stats.totalOpens}
                 accent
-                hint="Every pixel hit, no dedup"
+                hint="Send-load noise removed, no dedup"
               />
               <Stat
                 label="Total clicks"

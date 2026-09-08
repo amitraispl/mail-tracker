@@ -1,5 +1,6 @@
-export { Button, buttonClassName } from "./Button";
+export { Button } from "./Button";
 export type { ButtonProps, ButtonVariant } from "./Button";
+export { buttonClassName } from "./buttonClassName";
 
 export { Card } from "./Card";
 export type { CardProps } from "./Card";

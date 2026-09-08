@@ -13,8 +13,10 @@
   text-decoration:none;
   white-space:nowrap;
   cursor:pointer;
-  transition:background-color .15s ease,border-color .15s ease,color .15s ease,
-    box-shadow .15s ease,transform .1s ease;
+  position:relative;
+  overflow:hidden;
+  transition:background-color .35s ease,border-color .35s ease,color .35s ease,
+    box-shadow .35s ease,transform .1s ease;
 }
 
 .button:disabled,
@@ -43,3 +45,105 @@
 .secondary:active:not(:disabled){background:var(--color-surface-alt);color:var(--color-primary-active);box-shadow:none;}
 
 .block{width:100%;}
+
+/* "You should click this" cue — ported verbatim (mechanics + timing) from
+   magicui's shimmer-button (registry/magicui/shimmer-button.tsx), minus
+   Tailwind since this project doesn't use it. Same four layers, same
+   variables, same keyframes:
+     1. spark  — blurred, deep behind everything, holds a rotating conic-
+        gradient wedge and slides once across the button per cycle.
+     2. backdrop — solid fill inset by --shimmer-cut from every edge, sits
+        just above the spark. It's what turns "spark visible everywhere"
+        into "spark visible only in a hairline ring around the edge" — it
+        simply covers the middle.
+     3. content (children, rendered by Button itself).
+     4. highlight — a static glassy inset-shadow sheen on top, brightens on
+        hover/active for a bit of depth.
+   Always wins over .primary/.secondary since it's declared last. */
+.shimmer{
+  position:relative;
+  z-index:0;
+  overflow:hidden;
+  /* Border stays 1px (same box size as .primary/.secondary, no layout jump
+     toggling shimmer on/off) but matches the surrounding card's background
+     instead of being transparent or a solid color — it visually disappears
+     into the page, so the shimmer ring (which starts right at its inner
+     edge) reads as flush with the button's actual boundary. */
+  border-color:var(--color-bg);
+  background:var(--color-primary);
+  color:var(--color-text-inverse);
+  /* No drop-shadow — it'd draw its own dark edge around the button, right
+     where the border-matches-card trick is trying to make the edge
+     disappear. Would recreate the exact seam that was just removed. */
+  box-shadow:none;
+  --shimmer-color:#ffffff;
+  --shimmer-spread:90deg;
+  --shimmer-cut:0.03em;
+  --shimmer-speed:3s;
+}
+.shimmer:hover:not(:disabled){
+  background:var(--color-primary-hover);
+  color:var(--color-text-inverse);
+}
+.shimmer:hover:not(:disabled) .shimmerBackdrop{background:var(--color-primary-hover);}
+
+.shimmerSpark{
+  position:absolute;
+  inset:0;
+  z-index:-3;
+  overflow:visible;
+  filter:blur(2px);
+  container-type:size;
+  pointer-events:none;
+}
+.shimmerSlide{
+  position:absolute;
+  inset:0;
+  height:100%;
+  aspect-ratio:1;
+  animation:shimmerSlide var(--shimmer-speed) ease-in-out infinite alternate;
+}
+.shimmerSpin{
+  position:absolute;
+  inset:-100%;
+  animation:shimmerSpin calc(var(--shimmer-speed) * 2) linear infinite;
+  background:conic-gradient(
+    from calc(270deg - (var(--shimmer-spread) * 0.5)),
+    transparent 0,
+    var(--shimmer-color) var(--shimmer-spread),
+    transparent var(--shimmer-spread)
+  );
+}
+.shimmerBackdrop{
+  position:absolute;
+  z-index:-2;
+  inset:var(--shimmer-cut);
+  border-radius:inherit;
+  background:var(--color-primary);
+  pointer-events:none;
+}
+.shimmerHighlight{
+  position:absolute;
+  z-index:-1;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  box-shadow:inset 0 -8px 10px rgba(255,255,255,.18);
+  transition:box-shadow .3s ease;
+}
+.shimmer:hover:not(:disabled) .shimmerHighlight{box-shadow:inset 0 -6px 10px rgba(255,255,255,.375);}
+.shimmer:active:not(:disabled) .shimmerHighlight{box-shadow:inset 0 -10px 10px rgba(255,255,255,.375);}
+
+@keyframes shimmerSlide{
+  to{transform:translate(calc(100cqw - 100%),0);}
+}
+@keyframes shimmerSpin{
+  0%{transform:translateZ(0) rotate(0);}
+  15%,35%{transform:translateZ(0) rotate(90deg);}
+  65%,85%{transform:translateZ(0) rotate(270deg);}
+  100%{transform:translateZ(0) rotate(360deg);}
+}
+
+@media (prefers-reduced-motion: reduce){
+  .shimmerSpark{display:none;}
+}

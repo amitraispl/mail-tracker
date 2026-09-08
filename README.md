@@ -27,9 +27,9 @@ There is no send integration — this app never sends mail itself. The flow is:
 - [Running locally](#running-locally)
 - [Creating a user account](#creating-a-user-account)
 - [Disabling / removing a user account](#disabling--removing-a-user-account)
-- [Enabling Swagger-equivalent API docs](#enabling-swagger-equivalent-api-docs)
 - [API reference](#api-reference)
 - [Database schema](#database-schema)
+- [Prisma workflow](#prisma-workflow)
 - [Scripts reference](#scripts-reference)
 - [Running in production](#running-in-production)
 - [Post-deploy checklist](#post-deploy-checklist)
@@ -66,17 +66,24 @@ mail-tracker/
         logs in via      │  Next.js App Router   │  create/edit/delete,
         /login           └─────────┬────────────┘  profile
                                    │
-                          fetch() with credentials: "include"
+                    relative fetch("/api/...", { credentials: "include" })
                                    │
+                    next.config.ts rewrites() proxies /api/* to the backend
+                    (Set-Cookie lands as first-party on the frontend's own
+                     domain — see "Cookie domain" below)
                                    ▼
                          backend's /api/auth/*, /api/campaigns/*, /api/process
 ```
 
 The frontend has **no database access** — every read/write goes through the
-backend's HTTP API. Server Components forward the visitor's cookies to the
-backend on SSR reads; client components call the backend directly with
-`credentials: "include"`. The root directory has **no `package.json`** —
-always run commands from inside `frontend/` or `backend/`.
+backend's HTTP API. Server Components/Actions (`lib/backend.ts`) call the
+backend's real origin directly and forward the visitor's cookies by hand for
+SSR reads; client components never call the backend's origin directly — they
+fetch relative `/api/...` paths on the frontend's own domain, which
+`next.config.ts` proxies to the backend server-side (see
+[Cookie domain](#cookie-domain--read-this-before-deploying) for why). The
+root directory has **no `package.json`** — always run commands from inside
+`frontend/` or `backend/`.
 
 ## Tech stack
 
@@ -191,29 +198,70 @@ README and the corresponding `CLAUDE.md`.**
 
 | Var | Example | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:4000` (dev) / `https://api.illumiasolutions.com` (prod) | Backend's public base URL. Exposed to the browser (`NEXT_PUBLIC_` prefix) — client components call it directly. |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:4000` (dev) / backend's real prod origin | Backend's base URL. Used server-side by `next.config.ts`'s `rewrites()` (proxies `/api/*` to this) and by `lib/backend.ts` for SSR fetches. Browser code never calls this directly — it fetches relative `/api/...` paths so the proxy can turn `Set-Cookie` into a first-party cookie; see [Cookie domain](#cookie-domain--read-this-before-deploying). |
 | `JWT_ACCESS_SECRET` | same value as backend | **Must be byte-for-byte identical to the backend's.** Used only to verify (never sign) the access token for redirect UX in `middleware.ts` — the backend independently re-verifies every request regardless, so this middleware check is a UX optimization, not the real enforcement point. |
 
 ## Cookie domain — read this before deploying
 
 Login sets two httpOnly cookies (`mt_access`, `mt_refresh`) on the
-**backend's** response. For the frontend's SSR requests and the browser's
-direct calls to the backend to both see them, frontend and backend need to
-share a registrable domain.
+**backend's** response. The browser only ever sends cookies back to the
+domain that set them, so the frontend needs a way to see a cookie the
+backend issued. This repo handles that with a **same-domain proxy**, not
+with a shared cookie domain — that's the default and recommended setup.
 
-- **Local dev**: backend on `localhost:4000`, frontend on `localhost:3000` —
-  same host (`localhost`), different ports. Cookies aren't port-scoped, so
-  leave `COOKIE_DOMAIN=""` and it just works.
-- **Production**: put both services on **subdomains of one domain** — e.g.
-  `app.illumiasolutions.com` (frontend) + `api.illumiasolutions.com`
-  (backend) — and set `COOKIE_DOMAIN=".illumiasolutions.com"`. Subdomains of
-  the same registrable domain are "same-site", so `SameSite=Lax` cookies
-  work across them without any cross-site cookie complications.
-- **Avoid** putting frontend and backend on two *unrelated* top-level domains
-  (e.g. `mailtracker.app` + `mailtracker-api.io`) — that's genuinely
-  cross-site, forces `SameSite=None`, and modern browsers increasingly block
-  or restrict that kind of third-party cookie. Use subdomains of one domain
-  instead; don't fight the browser on this.
+### Default / recommended: proxy through the frontend (unrelated domains OK)
+
+`frontend/next.config.ts` rewrites every `/api/*` request on the frontend's
+own domain through to the backend (`NEXT_PUBLIC_API_URL`):
+
+```ts
+// frontend/next.config.ts
+async rewrites() {
+  return [{ source: "/api/:path*", destination: `${BACKEND_ORIGIN}/api/:path*` }];
+}
+```
+
+Because of this, **all browser-side code calls relative `/api/...` paths**
+(see `frontend/src/lib/api.ts`), never the backend's origin directly. The
+request leaves the browser for the frontend's own domain, Next.js proxies it
+to the backend server-side, and the backend's `Set-Cookie` comes back
+looking like a same-origin response to the browser — so it's stored as a
+**first-party cookie on the frontend's domain**, and `frontend/src/middleware.ts`
+(which reads cookies off its own incoming requests) can see the session.
+
+This is what makes it fine to run, e.g., the **frontend on Vercel** and the
+**backend on Render/Railway/a VPS** on two completely unrelated domains —
+the exact setup this app is built for in production. With this proxy in
+place:
+
+- `COOKIE_DOMAIN` stays `""` (host-only) in **both** local dev and
+  production — you almost never need to set it.
+- `FRONTEND_ORIGIN` on the backend still matters for CORS on any
+  non-proxied/credentialed call, but the cookie itself no longer depends on
+  CORS or `SameSite` working across origins.
+- Don't try to "fix" cross-domain auth by loosening `SameSite` to `None` on
+  the backend's cookies — that was tried, doesn't solve the real problem (a
+  cross-site `Set-Cookie` is invisible to the frontend's own server-side
+  cookie reads no matter what `SameSite`/CORS says), and was reverted. Keep
+  the proxy.
+- Server Components / Server Actions (`frontend/src/lib/backend.ts`) talk to
+  the backend's real origin directly and forward the incoming request's
+  cookies by hand — they don't go through the rewrite, but they don't need
+  to, since they run on the frontend's own server, not in the browser.
+
+### Alternative: shared parent domain, no proxy needed
+
+If you'd rather put both services on **subdomains of one domain** — e.g.
+`app.illumiasolutions.com` (frontend) + `api.illumiasolutions.com`
+(backend) — you can skip the proxy story entirely: set
+`COOKIE_DOMAIN=".illumiasolutions.com"` on the backend, and the cookie is
+readable on both subdomains directly (they're same-site, so plain
+`SameSite=Lax` works). `NEXT_PUBLIC_API_URL` can then point straight at the
+backend's origin. This repo doesn't require this setup, but it works too.
+
+**Local dev** either way: backend on `localhost:4000`, frontend on
+`localhost:3000` — same host, different ports, cookies aren't port-scoped —
+leave `COOKIE_DOMAIN=""` and it just works, proxy or no proxy.
 
 ## Running locally
 
@@ -328,29 +376,6 @@ that doesn't revoke existing sessions by itself, but changing the password
 via the **Profile** page in the UI *does* revoke every other session
 automatically (see `PATCH /api/auth/me` in the [API reference](#api-reference)).
 
-## Enabling Swagger-equivalent API docs
-
-This backend does **not** ship OpenAPI/Swagger UI (no `swagger-ui-express`,
-no `DEBUG` flag, no `/docs` route) — it's a small, fixed set of routes
-consumed only by this repo's own frontend, so interactive docs were never
-wired up. If you need to explore or exercise the API directly, use the
-[API reference](#api-reference) table below together with `curl` or a
-tool like Postman/Insomnia, e.g.:
-
-```bash
-# login and keep the session cookie
-curl -c cookies.txt -X POST http://localhost:4000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com","password":"your password"}'
-
-# use it on a protected route
-curl -b cookies.txt http://localhost:4000/api/campaigns
-```
-
-If you actually want live Swagger/OpenAPI docs added, that's a real feature
-request (adding `swagger-jsdoc`/`swagger-ui-express` or similar) — flag it
-and it can be scoped properly rather than bolted on ad hoc.
-
 ## API reference
 
 All routes are mounted on the backend (`http://localhost:4000` in dev). Auth
@@ -405,6 +430,95 @@ silently drop columns/tables that no longer exist in the schema file).
 All child rows cascade-delete with their parent (`Campaign` → `Link` /
 `OpenEvent` / `ClickEvent`; `Link` → `ClickEvent`; `User` → `RefreshToken`).
 
+## Prisma workflow
+
+`backend/prisma/schema.prisma` is the **single source of truth** for the
+database shape — don't hand-edit tables in MySQL, don't add columns via a
+raw `ALTER TABLE`. Change the schema file, then push it.
+
+### The core loop
+
+```bash
+cd backend
+# 1. edit backend/prisma/schema.prisma
+# 2. push the new shape to whatever DATABASE_URL points at
+npx prisma db push
+# (equivalent: npm run db:push)
+```
+
+`db push` **introspects the live database, diffs it against the schema
+file, and applies the difference** — it creates new tables/columns, alters
+changed ones, and (this is the part to watch) **drops** columns/tables that
+exist in the DB but no longer exist in the schema. Prisma prints the exact
+diff and asks for confirmation before applying anything destructive — always
+read that diff, especially against a production database. There's no
+migration history file in this repo (no `prisma/migrations/`) — that's a
+deliberate choice at this project's size, not an oversight, so there's
+nothing to "roll back to" if a push goes wrong. Take a DB snapshot/backup
+before pushing a schema change you're unsure about in production.
+
+### Prisma Client — keep it in sync after every schema change
+
+Editing `schema.prisma` changes the *shape* of the database, but the
+generated TypeScript types/client (`@prisma/client`) only update when you
+regenerate them:
+
+```bash
+npx prisma generate
+```
+
+You rarely need to run this by hand — it's wired into `postinstall`
+(`npm install` runs it automatically) and `npm run build` triggers it
+transitively via that same `postinstall`. You **do** need to run it by hand
+if you edit `schema.prisma` and immediately try to use the new field from a
+running `npm run dev` session without reinstalling — restart `tsx watch`
+after running `npx prisma generate` so the new types actually load. The
+single Prisma client instance for the whole backend lives in `src/db.ts`
+(`backend/src/db.ts`) — import `prisma` from there, never instantiate
+`new PrismaClient()` anywhere else (each instance opens its own connection
+pool).
+
+### Inspecting/editing data directly — Prisma Studio
+
+```bash
+cd backend
+npx prisma studio
+```
+
+Opens a local web GUI (`http://localhost:5555`) against whatever
+`DATABASE_URL` your `.env` currently points at — browse/edit/delete rows in
+any table without writing SQL. This is genuinely useful for one-off admin
+tasks (see [Disabling / removing a user account](#disabling--removing-a-user-account)
+for a concrete example), but it talks to the **real** database `.env`
+points at, prod included if that's what's configured — double-check which
+`DATABASE_URL` is active before deleting anything.
+
+### Gotchas specific to this project
+
+- **`@db.LongText` / `@db.Text` annotations are load-bearing.** MySQL's
+  default Prisma `String` maps to `VARCHAR(191)`. `Campaign.processedHtml`,
+  `Link.originalUrl`, and the `userAgent` fields are annotated
+  `@db.LongText`/`@db.Text` specifically so a full HTML email or a long URL
+  doesn't get silently truncated on insert. Don't remove these annotations
+  when touching the schema.
+- **Cascades are defined in the schema, not assumed.** `Campaign → Link /
+  OpenEvent / ClickEvent`, `Link → ClickEvent`, and `User → RefreshToken`
+  all use `onDelete: Cascade` — deleting a `Campaign` really does wipe every
+  associated link/open/click row, and it's irreversible (see the
+  [API reference](#api-reference) note on `DELETE /api/campaigns/:id`).
+- **Unique tokens are enforced at the DB level.** `Campaign.openToken` and
+  `Link.token` are `@unique` — token collisions from `nanoid` fail at the
+  database, not silently.
+- **New required column?** `db push` will refuse (or prompt to reset data)
+  if you add a non-nullable column to a table that already has rows and
+  don't give it a `@default(...)`. Either add a default or make the field
+  optional (`Type?`) when adding a column to a table you expect already has
+  production data — this repo does this for e.g. `sentCount Int @default(0)`.
+- **Connection string SSL mode matters.** Aiven (and most managed MySQL)
+  require `?ssl-mode=REQUIRED` in `DATABASE_URL` — omitting it is a common
+  cause of a `db push` or app-boot connection failure that has nothing to do
+  with the schema itself.
+
 ## Scripts reference
 
 **`backend/`**
@@ -429,45 +543,66 @@ All child rows cascade-delete with their parent (`Campaign` → `Link` /
 
 ## Running in production
 
-Both services need a **persistent Node process** (not static hosting) —
-plan for `pm2`, `systemd`, Docker, or your PaaS's process manager to keep
-each alive and auto-restart on crash. Point a reverse proxy (nginx, Caddy)
-or your platform's routing at each service on its own subdomain:
+The two services deploy independently and don't need to share a host,
+platform, or domain — see [Cookie domain](#cookie-domain--read-this-before-deploying)
+for why unrelated domains are fine. The setup below (Vercel for the
+frontend, any persistent-Node host for the backend) is what this app is
+built for; swap the backend host for whatever you actually use, the steps
+don't change.
 
-- `api.yourdomain.com` → **backend**, respects `PORT`
-- `app.yourdomain.com` → **frontend**, respects `PORT`
+### Backend — needs a persistent Node process
 
-**Backend**
+Next.js's serverless model doesn't apply here: the backend is a long-lived
+Express server (it also owns the Prisma connection pool), so it needs a host
+that keeps a Node **process** alive — Render, Railway, Fly.io, a plain VPS
+with `pm2`/`systemd`, or Docker. Static/serverless-only hosting won't work
+for this service.
 
 ```bash
 cd backend
 npm ci
-npm run build              # prisma generate (via postinstall) + tsc
-npx prisma db push         # apply schema to the production DB — check the diff first
-npm run create-user -- --email you@illumiasolutions.com --password "..."   # first deploy only
-npm start
+npm run build              # runs `prisma generate` first (postinstall), then tsc → dist/
+npx prisma db push         # apply schema.prisma to the production DATABASE_URL — read the diff before confirming
+npm run create-user -- --email you@illumiasolutions.com --password "..."   # first deploy only, creates the first login
+npm start                  # node dist/server.js
 ```
 
-**Frontend**
+Set every var from [`backend/.env`](#backendenv) in the host's environment/secret
+config — real `DATABASE_URL`, `PUBLIC_TRACK_BASE_URL` set to the backend's
+own real HTTPS domain, `FRONTEND_ORIGIN` set to the frontend's real HTTPS
+domain, a strong `JWT_ACCESS_SECRET`, `NODE_ENV=production` (this flips
+cookies to `Secure`, so it must be set correctly), `COOKIE_DOMAIN=""` unless
+you're on the shared-parent-domain setup.
+
+### Frontend — deploy to Vercel
 
 ```bash
 cd frontend
 npm ci
 npm run build
-npm start
+npm start          # or let the platform run this for you
 ```
 
-Both `.env` files (or your platform's equivalent secret/env config) need
-the **production** values described in [Required environment
-variables](#required-environment-variables) — real HTTPS URLs, matching
-`JWT_ACCESS_SECRET` on both sides, `NODE_ENV=production` on the backend,
-`COOKIE_DOMAIN` set to the shared parent domain.
+On Vercel specifically: point a Vercel project at `frontend/` (set its
+**root directory** to `frontend` since the repo root has no `package.json`),
+let it run its default `next build` / `next start` — no custom build command
+needed. Set `NEXT_PUBLIC_API_URL` (backend's real origin) and
+`JWT_ACCESS_SECRET` (same value as the backend's) as **Environment
+Variables** in the Vercel project settings for the Production environment.
+The `rewrites()` proxy in `next.config.ts` reads `NEXT_PUBLIC_API_URL` at
+request time, so it automatically proxies `/api/*` to whatever backend host
+you set there — no extra Vercel config (no `vercel.json` needed for this).
+
+Any other Next.js-capable host works the same way — it just needs to run
+`next build && next start` (or the platform's equivalent) with the same two
+env vars set.
 
 ## Post-deploy checklist
 
 1. Backend env vars set: `DATABASE_URL`, `PUBLIC_TRACK_BASE_URL` (backend's
    real HTTPS domain), `FRONTEND_ORIGIN` (frontend's real HTTPS domain),
-   `JWT_ACCESS_SECRET`, `COOKIE_DOMAIN` (shared parent domain),
+   `JWT_ACCESS_SECRET`, `COOKIE_DOMAIN` (leave `""` unless frontend/backend
+   share a parent domain — see [Cookie domain](#cookie-domain--read-this-before-deploying)),
    `NODE_ENV=production`.
 2. Frontend env vars set: `NEXT_PUBLIC_API_URL` (backend's real domain),
    `JWT_ACCESS_SECRET` (**exact same value** as the backend's).
@@ -512,10 +647,13 @@ middleware and/or the backend's `authenticate` middleware reject a
 perfectly valid token.
 
 **Cookies never seem to get set / session doesn't persist.**
-Re-read [Cookie domain](#cookie-domain--read-this-before-deploying) — this
-is almost always a `COOKIE_DOMAIN` mismatch or frontend/backend living on
-unrelated top-level domains instead of subdomains of one domain. Also check
-`NODE_ENV` — `Secure` cookies silently fail to set over plain HTTP.
+Re-read [Cookie domain](#cookie-domain--read-this-before-deploying). Almost
+always one of: the frontend's `next.config.ts` `rewrites()` isn't actually
+proxying `/api/*` (check `NEXT_PUBLIC_API_URL` is set at build/runtime on
+the frontend), some browser-side code is calling the backend's origin
+directly instead of a relative `/api/...` path, or `NODE_ENV` isn't
+`production` on the backend so `Secure` cookies silently fail to set over
+plain HTTP.
 
 **CORS errors in the browser console.**
 `FRONTEND_ORIGIN` on the backend must exactly match the frontend's actual

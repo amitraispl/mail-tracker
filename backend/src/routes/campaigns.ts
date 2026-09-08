@@ -67,7 +67,19 @@ campaignsRouter.get("/", async (_req, res) => {
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { opens: true, clicks: true, links: true } } },
   });
-  res.json(campaigns);
+
+  // The tracked pixel fires once at send-load time too, same as the
+  // campaign-detail endpoint — subtract `sentCount` from the raw open count
+  // so homepage totals agree with what the campaign page shows.
+  const corrected = campaigns.map((campaign) => ({
+    ...campaign,
+    _count: {
+      ...campaign._count,
+      opens: Math.max(0, campaign._count.opens - campaign.sentCount),
+    },
+  }));
+
+  res.json(corrected);
 });
 
 campaignsRouter.get("/:id", async (req, res) => {

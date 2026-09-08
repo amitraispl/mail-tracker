@@ -1,8 +1,6 @@
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  TextareaHTMLAttributes,
-} from "react";
+"use client";
+
+import { useState, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import styles from "./Field.module.css";
 
 interface FieldBase {
@@ -11,6 +9,8 @@ interface FieldBase {
   label: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
+  /** Rendered inside the control, right-aligned — e.g. a show/hide toggle. */
+  endAdornment?: ReactNode;
 }
 
 export type FieldProps =
@@ -23,11 +23,54 @@ export type FieldProps =
         "id"
       >);
 
+/** Browsers block copying out of a `type="password"` input outright — the
+ *  only way to let someone copy what they typed is to briefly reveal it as
+ *  plain text, where the native copy command isn't restricted. */
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  ) : (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
+      <line x1="2" y1="22" x2="22" y2="2" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
 export function Field(props: FieldProps) {
-  const { id, label, hint, error } = props;
+  const [revealed, setRevealed] = useState(false);
+  const { id, label, hint, error, endAdornment } = props;
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
+
+  const isPassword = props.as !== "textarea" && props.type === "password";
+  const adornment =
+    endAdornment ??
+    (isPassword ? (
+      <button
+        type="button"
+        className={styles.adornmentButton}
+        onClick={() => setRevealed((v) => !v)}
+        aria-label={revealed ? "Hide password" : "Show password"}
+        aria-pressed={revealed}
+        tabIndex={-1}
+      >
+        <EyeIcon open={revealed} />
+      </button>
+    ) : null);
 
   const shared = {
     id,
@@ -37,7 +80,7 @@ export function Field(props: FieldProps) {
 
   let control: ReactNode;
   if (props.as === "textarea") {
-    const { id: _id, label: _label, hint: _hint, error: _error, as: _as, className, ...rest } = props;
+    const { id: _id, label: _label, hint: _hint, error: _error, as: _as, endAdornment: _endAdornment, className, ...rest } = props;
     control = (
       <textarea
         {...shared}
@@ -48,15 +91,30 @@ export function Field(props: FieldProps) {
       />
     );
   } else {
-    const { id: _id, label: _label, hint: _hint, error: _error, as: _as, className, ...rest } = props;
+    const { id: _id, label: _label, hint: _hint, error: _error, as: _as, endAdornment: _endAdornment, className, type, ...rest } = props;
     control = (
       <input
         {...shared}
         {...rest}
-        className={[styles.control, error ? styles.invalid : null, className]
+        type={isPassword ? (revealed ? "text" : "password") : type}
+        className={[
+          styles.control,
+          adornment ? styles.controlWithAdornment : null,
+          error ? styles.invalid : null,
+          className,
+        ]
           .filter(Boolean)
           .join(" ")}
       />
+    );
+  }
+
+  if (adornment) {
+    control = (
+      <div className={styles.controlWrap}>
+        {control}
+        <div className={styles.adornment}>{adornment}</div>
+      </div>
     );
   }
 
