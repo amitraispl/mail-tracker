@@ -1,0 +1,115 @@
+# docker-compose.yml — Mail Tracker
+#
+# Self-host alternative to the Vercel(frontend) + persistent-host(backend) setup
+# described in README.md. Both services still deploy independently in prod —
+# this just lets you run both on one box.
+#
+# No bundled database: this app is built against an external managed MySQL
+# (Aiven, RDS, etc.) via DATABASE_URL — see backend/.env.example. Don't add a
+# mysql service here without also adding the matching env vars to
+# backend/.env.example and documenting them in README.md/CLAUDE.md.
+#
+# Usage:
+#   docker compose up -d          # build & start
+#   docker compose up -d --build  # rebuild after code changes
+#   docker compose down           # stop & remove
+#   docker compose logs -f        # tail logs
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: mail-tracker-backend:latest
+    container_name: mail-tracker-backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    restart: unless-stopped
+    init: true                         # tini as PID 1 — proper signal forwarding + zombie reaping
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks:
+      - app-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          cpus: "0.25"
+          memory: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:4000/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+    labels:
+      com.mailtracker.service: "backend"
+      com.mailtracker.role: "api"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: mail-tracker-frontend:latest
+    container_name: mail-tracker-frontend
+    # frontend/.env's NEXT_PUBLIC_API_URL must be http://backend:4000 (the
+    # compose service name) here, not localhost:4000 — next.config.ts's
+    # rewrites() and lib/backend.ts run inside this container and need the
+    # in-network address to reach the backend service.
+    env_file:
+      - ./frontend/.env
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks:
+      - app-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+        reservations:
+          cpus: "0.10"
+          memory: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:3000/login"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    labels:
+      com.mailtracker.service: "frontend"
+      com.mailtracker.role: "web"
+
+networks:
+  app-net:
+    driver: bridge

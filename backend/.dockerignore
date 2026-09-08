@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+node_modules
+dist
+*.log
+.DS_Store
+*.tsbuildinfo
+.git
+.gitignore
+.dockerignore
+*.md
+CLAUDE.md
+docker-compose.yml
+Dockerfile
