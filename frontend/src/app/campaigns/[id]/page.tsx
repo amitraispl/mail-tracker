@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadCampaign, type PerLinkStats } from "@/lib/backend";
+import { displayedOpens } from "@/lib/stats";
 import {
   Card,
   DataTable,
@@ -100,7 +101,7 @@ export default async function CampaignDashboardPage({
             <div className={styles.metrics}>
               <Stat
                 label="Total opens"
-                value={stats.totalOpens}
+                value={displayedOpens(stats.rawOpens, stats.sent)}
                 accent
                 hint="Send-load noise removed, no dedup"
               />

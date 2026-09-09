@@ -186,7 +186,8 @@ README and the corresponding `CLAUDE.md`.**
 
 | Var | Example | Notes |
 |---|---|---|
-| `DATABASE_URL` | `mysql://user:pass@host:port/db?ssl-mode=REQUIRED` | MySQL connection string. On Aiven, copy the **Service URI** shown on the service's Overview page — it's already in this exact format. |
+| `DATABASE_URL` | `mysql://user:pass@host:port/db?ssl-mode=REQUIRED` | MySQL connection string. On Aiven, copy the **Service URI** shown on the service's Overview page — it's already in this exact format. If you're using the bundled `mysql` service in the root `docker-compose.yml` instead of a managed host, point this at `mysql://<MARIADB_USER>:<MARIADB_PASSWORD>@mysql:3306/<MARIADB_DATABASE>` (no `ssl-mode` needed). |
+| `MARIADB_ROOT_PASSWORD` / `MARIADB_DATABASE` / `MARIADB_USER` / `MARIADB_PASSWORD` | — | Only read by the root `docker-compose.yml`'s bundled `mysql` service, to initialize the MariaDB container. The backend app itself never reads these — only `DATABASE_URL`. Not needed at all if you're using an external managed MySQL host. |
 | `PUBLIC_TRACK_BASE_URL` | `http://localhost:4000` (dev) / `https://api.illumiasolutions.com` (prod) | The backend's own public host. Baked directly into every tracked email's pixel and link URLs — **must be real, reachable HTTPS before any campaign HTML is actually sent to recipients.** |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | Frontend origin(s), comma-separated if more than one. Drives CORS for credentialed (cookie-carrying) requests. |
 | `JWT_ACCESS_SECRET` | long random string | Signs access-token JWTs. Generate with `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. **Must match the frontend's value exactly.** |

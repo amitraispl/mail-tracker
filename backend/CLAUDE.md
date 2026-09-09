@@ -47,12 +47,15 @@ warrant it; check the diff output before confirming on prod, a push can drop
 columns).
 
 ## Stats — no rates, ever
-`lib/stats.ts` / `lib/query.ts` return raw totals only: `{ sent, totalOpens,
+`lib/stats.ts` / `lib/query.ts` return raw totals only: `{ sent, rawOpens,
 totalClicks }` and per-link `{ totalClicks }`. **No unique/dedup counting, no
 %-based CTR/open-rate math anywhere.** This was a deliberate product call (one
 shared HTML blob sent to every recipient makes both unique-actor attribution and
 %-based rates read as more precise than the data supports) — don't reintroduce rate
-math without being asked.
+math without being asked. `rawOpens` is the unmodified `OpenEvent` count — the
+send-load noise correction (subtracting `sent`) happens client-side
+(`frontend/src/lib/stats.ts`), not here, so a `sentCount` edit is reflected on
+next render without this response's shape changing.
 
 ## Auth model
 Named accounts, bcrypt-hashed passwords (`lib/passwords.ts`). Two-token session:
@@ -112,4 +115,7 @@ the shared parent (`.illumiasolutions.com`) so the cookie is readable on both.
 ## Environment
 See `.env.example` for the full list with explanations: `DATABASE_URL`,
 `PUBLIC_TRACK_BASE_URL`, `FRONTEND_ORIGIN`, `JWT_ACCESS_SECRET`, `COOKIE_DOMAIN`,
-`PORT`, `NODE_ENV`.
+`PORT`, `NODE_ENV`. Also `MARIADB_ROOT_PASSWORD`/`MARIADB_DATABASE`/`MARIADB_USER`/
+`MARIADB_PASSWORD` — these four are consumed only by the bundled `mysql`
+service in the root `docker-compose.yml` to initialize the MariaDB container;
+this app's own code never reads them, only `DATABASE_URL`.

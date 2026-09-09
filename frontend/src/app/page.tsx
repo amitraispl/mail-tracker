@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { loadCampaignList } from "@/lib/backend";
+import { displayedOpens } from "@/lib/stats";
 import {
   Card,
   EmptyState,
@@ -33,7 +34,7 @@ export default async function HomePage() {
 
   const totals = campaigns.reduce(
     (acc, c) => {
-      acc.opens += c._count.opens;
+      acc.opens += displayedOpens(c._count.opens, c.sentCount);
       acc.clicks += c._count.clicks;
       acc.sent += c.sentCount;
       return acc;
@@ -106,7 +107,10 @@ export default async function HomePage() {
                       </p>
                     </div>
                     <div className={styles.tags}>
-                      <Tag label="opens" value={campaign._count.opens} />
+                      <Tag
+                        label="opens"
+                        value={displayedOpens(campaign._count.opens, campaign.sentCount)}
+                      />
                       <Tag label="clicks" value={campaign._count.clicks} />
                       <Tag label="sent" value={campaign.sentCount} />
                     </div>

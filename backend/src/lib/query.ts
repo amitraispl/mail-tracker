@@ -45,6 +45,8 @@ export async function loadCampaign(id: string): Promise<CampaignDetail | null> {
     rawOpens: campaign._count.opens,
     totalClicks: campaign._count.clicks,
   });
+  // stats.rawOpens is raw OpenEvent count — send-load noise correction
+  // happens client-side (frontend/src/lib/stats.ts), not here.
 
   return {
     id: campaign.id,

@@ -1,21 +1,67 @@
 # docker-compose.yml — Mail Tracker
 #
 # Self-host alternative to the Vercel(frontend) + persistent-host(backend) setup
-# described in README.md. Both services still deploy independently in prod —
-# this just lets you run both on one box.
+# described in README.md. Both app services still deploy independently in
+# prod — this just lets you run the whole stack, including its own database,
+# on one box.
 #
-# No bundled database: this app is built against an external managed MySQL
-# (Aiven, RDS, etc.) via DATABASE_URL — see backend/.env.example. Don't add a
-# mysql service here without also adding the matching env vars to
-# backend/.env.example and documenting them in README.md/CLAUDE.md.
+# Bundled database: the `mysql` service below is a local MariaDB container
+# for self-hosting convenience. This app also works fine against an external
+# managed MySQL (Aiven, RDS, etc.) instead — if you go that route, delete the
+# `mysql` service below and the four MARIADB_* vars from backend/.env.example,
+# and just point backend/.env's DATABASE_URL at your managed host directly
+# (see the comment above DATABASE_URL in backend/.env.example).
 #
 # Usage:
 #   docker compose up -d          # build & start
 #   docker compose up -d --build  # rebuild after code changes
-#   docker compose down           # stop & remove
+#   docker compose down           # stop & remove (keeps the mysql_data volume)
+#   docker compose down -v        # also delete the mysql_data volume  ← DESTRUCTIVE
 #   docker compose logs -f        # tail logs
 
 services:
+
+  # ── Database ──────────────────────────────────────────────────────────────
+  # Reachable only from backend, via db-net. frontend has no route to it.
+  mysql:
+    image: mariadb:10.11.13
+    container_name: mail-tracker-mysql
+    env_file:
+      - ./backend/.env
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - db-net
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [SETGID, SETUID, DAC_OVERRIDE]   # required for mysql data dir ownership
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          cpus: "0.25"
+          memory: 128m
+    healthcheck:
+      # healthcheck.sh is the official MariaDB image's own health script —
+      # avoids putting a password on the command line.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+    labels:
+      com.mailtracker.service: "mysql"
+      com.mailtracker.role: "database"
 
   backend:
     build:
@@ -25,6 +71,9 @@ services:
     container_name: mail-tracker-backend
     env_file:
       - ./backend/.env
+    depends_on:
+      mysql:
+        condition: service_healthy
     ports:
       - "${BACKEND_PORT:-4000}:4000"
     restart: unless-stopped
@@ -36,6 +85,7 @@ services:
     tmpfs:
       - /tmp:size=32m,mode=1777
     networks:
+      - db-net
       - app-net
     logging:
       driver: json-file
@@ -111,5 +161,12 @@ services:
       com.mailtracker.role: "web"
 
 networks:
+  db-net:
+    driver: bridge
+    internal: true      # no outbound internet from this network — DB is fully isolated
   app-net:
     driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

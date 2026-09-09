@@ -22,7 +22,7 @@ export interface PerLinkStats {
 
 export interface CampaignStats {
   sent: number;
-  totalOpens: number;
+  rawOpens: number;
   totalClicks: number;
 }
 
