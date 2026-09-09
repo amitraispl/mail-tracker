@@ -114,9 +114,9 @@ campaignsRouter.patch("/:id", async (req, res) => {
   if (typeof body.html === "string" && body.html.trim()) {
     const baseUrl = publicBaseUrl(req);
 
-    // The open pixel keeps its token so existing open history stays valid;
-    // only links are rebuilt, so past click history for the old links is
-    // deliberately dropped along with them.
+    // Replacing the HTML is a fresh send in all but name — old open/click
+    // history no longer corresponds to anything a recipient can still act on,
+    // so both are cleared along with the rebuilt links.
     const { html: processedHtml, links } = transformHtml(body.html, {
       baseUrl,
       openToken: campaign.openToken,
@@ -142,6 +142,7 @@ campaignsRouter.patch("/:id", async (req, res) => {
     if (data.links) {
       await prisma.$transaction([
         prisma.link.deleteMany({ where: { campaignId: id } }),
+        prisma.openEvent.deleteMany({ where: { campaignId: id } }),
         prisma.campaign.update({ where: { id }, data }),
       ]);
     } else {

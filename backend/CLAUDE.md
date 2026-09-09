@@ -82,8 +82,9 @@ Named accounts, bcrypt-hashed passwords (`lib/passwords.ts`). Two-token session:
 - `GET /api/campaigns` → newest-first, `_count {opens,clicks,links}`. Auth required.
 - `GET /api/campaigns/{id}` → `CampaignDetail` or 404. Auth required.
 - `PATCH /api/campaigns/{id} {name?, html?}` → `{ ok, linkCount }`. `html` keeps the
-  same `openToken` (open history stays valid) but deletes+recreates every `Link`,
-  cascading away that campaign's `ClickEvent`s. Auth required.
+  same `openToken` (pixel URL stays valid) but wipes that campaign's `OpenEvent`s,
+  and deletes+recreates every `Link`, cascading away its `ClickEvent`s — an HTML
+  replace is treated as a fresh send. Auth required.
 - `DELETE /api/campaigns/{id}` → `{ ok }`. Cascades everything. Auth required.
 - `POST /api/campaigns/{id}/sent {sentCount}` → `{ ok }`. Auth required.
 
