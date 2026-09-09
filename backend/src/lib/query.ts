@@ -19,9 +19,9 @@ export interface CampaignDetail {
   perLink: PerLinkStats[];
 }
 
-export async function loadCampaign(id: string): Promise<CampaignDetail | null> {
-  const campaign = await prisma.campaign.findUnique({
-    where: { id },
+export async function loadCampaign(id: string, userId: string): Promise<CampaignDetail | null> {
+  const campaign = await prisma.campaign.findFirst({
+    where: { id, userId },
     include: {
       links: {
         orderBy: { id: "asc" },

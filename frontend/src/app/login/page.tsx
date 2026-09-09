@@ -12,6 +12,7 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [succeeded, setSucceeded] = useState(false);
 
   // Only same-site paths, so ?next= can't be used to bounce someone off-site.
   const rawNext = searchParams.get("next") ?? "/";
@@ -31,6 +32,11 @@ function LoginForm() {
 
     if (response.ok) {
       setPassword("");
+      // Swap the form for a spinner right away instead of leaving the
+      // (now-blank) form sitting frozen while the destination route's data
+      // fetch resolves — router.replace()'s own loading.tsx fallback only
+      // kicks in once navigation actually starts, which isn't instant.
+      setSucceeded(true);
       router.replace(next);
       router.refresh();
       return;
@@ -41,6 +47,17 @@ function LoginForm() {
     } | null;
     setError(body?.error ?? "Sign-in failed.");
     setPending(false);
+  }
+
+  if (succeeded) {
+    return (
+      <Card className={styles.card} title="Sign in">
+        <div className={styles.redirecting}>
+          <div className={styles.spinner} role="status" aria-label="Signing in" />
+          <p className={styles.redirectingLabel}>Signing in…</p>
+        </div>
+      </Card>
+    );
   }
 
   return (

@@ -9,15 +9,19 @@ datasource db {
 
 model Campaign {
   id            String   @id @default(cuid())
+  userId        String
   name          String
   openToken     String   @unique
   sentCount     Int      @default(0)
   createdAt     DateTime @default(now())
   processedHtml String?  @db.LongText
 
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   links  Link[]
   opens  OpenEvent[]
   clicks ClickEvent[]
+
+  @@index([userId])
 }
 
 model Link {
@@ -71,6 +75,7 @@ model User {
   createdAt    DateTime @default(now())
 
   refreshTokens RefreshToken[]
+  campaigns     Campaign[]
 }
 
 /// One row per issued refresh token, so a token can be individually revoked

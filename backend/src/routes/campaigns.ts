@@ -40,6 +40,7 @@ processRouter.post("/process", async (req, res) => {
 
   const campaign = await prisma.campaign.create({
     data: {
+      userId: req.userId!,
       name,
       openToken,
       sentCount: toSentCount(body.sentCount),
@@ -62,8 +63,9 @@ processRouter.post("/process", async (req, res) => {
 
 export const campaignsRouter = Router();
 
-campaignsRouter.get("/", async (_req, res) => {
+campaignsRouter.get("/", async (req, res) => {
   const campaigns = await prisma.campaign.findMany({
+    where: { userId: req.userId! },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { opens: true, clicks: true, links: true } } },
   });
@@ -75,7 +77,7 @@ campaignsRouter.get("/", async (_req, res) => {
 });
 
 campaignsRouter.get("/:id", async (req, res) => {
-  const campaign = await loadCampaign(req.params.id);
+  const campaign = await loadCampaign(req.params.id, req.userId!);
   if (!campaign) {
     res.status(404).json({ error: "Campaign not found." });
     return;
@@ -87,8 +89,8 @@ campaignsRouter.patch("/:id", async (req, res) => {
   const { id } = req.params;
   const body = (req.body ?? {}) as { name?: unknown; html?: unknown };
 
-  const campaign = await prisma.campaign.findUnique({
-    where: { id },
+  const campaign = await prisma.campaign.findFirst({
+    where: { id, userId: req.userId! },
     select: { openToken: true },
   });
   if (!campaign) {
@@ -157,14 +159,12 @@ campaignsRouter.patch("/:id", async (req, res) => {
 });
 
 campaignsRouter.delete("/:id", async (req, res) => {
-  try {
-    await prisma.campaign.delete({ where: { id: req.params.id } });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-      res.status(404).json({ error: "Campaign not found." });
-      return;
-    }
-    throw err;
+  const { count } = await prisma.campaign.deleteMany({
+    where: { id: req.params.id, userId: req.userId! },
+  });
+  if (count === 0) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
   }
   res.json({ ok: true });
 });
@@ -186,14 +186,13 @@ campaignsRouter.post("/:id/sent", async (req, res) => {
     return;
   }
 
-  try {
-    await prisma.campaign.update({ where: { id }, data: { sentCount: raw } });
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
-      res.status(404).json({ error: "Campaign not found." });
-      return;
-    }
-    throw err;
+  const { count } = await prisma.campaign.updateMany({
+    where: { id, userId: req.userId! },
+    data: { sentCount: raw },
+  });
+  if (count === 0) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
   }
 
   res.json({ ok: true });
