@@ -68,6 +68,28 @@
   flex-wrap:wrap;
 }
 
+.sourceContent{
+  border-radius:var(--radius-md);
+}
+
+@keyframes jitter{
+  0%,100%{transform:translateX(0);}
+  20%{transform:translateX(-4px);}
+  40%{transform:translateX(4px);}
+  60%{transform:translateX(-3px);}
+  80%{transform:translateX(3px);}
+}
+
+.sourceContentJitter{
+  animation:jitter 260ms ease-in-out;
+  outline:2px solid var(--color-primary);
+  outline-offset:4px;
+}
+
+@media (prefers-reduced-motion:reduce){
+  .sourceContentJitter{animation:none;}
+}
+
 .fileName{
   color:var(--color-text-secondary);
   font-family:var(--font-mono);

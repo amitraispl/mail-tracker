@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   Button,
   Card,
@@ -36,6 +36,8 @@ export default function NewCampaignPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ProcessResult | null>(null);
+  const [jitter, setJitter] = useState(false);
+  const sourceContentRef = useRef<HTMLDivElement>(null);
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -56,6 +58,17 @@ export default function NewCampaignPage() {
   }
 
   function selectSource(next: Source) {
+    if (next === source) {
+      // Already on this source — nudge toward the section below instead of
+      // silently doing nothing (and instead of wiping what's already there).
+      sourceContentRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      setJitter(false);
+      requestAnimationFrame(() => setJitter(true));
+      return;
+    }
     setSource(next);
     setHtml("");
     setFileName(null);
@@ -262,33 +275,44 @@ export default function NewCampaignPage() {
                   </p>
                 </div>
 
-                {source === "upload" ? (
-                  <div className={styles.fileRow}>
+                <div
+                  ref={sourceContentRef}
+                  className={[
+                    styles.sourceContent,
+                    jitter ? styles.sourceContentJitter : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onAnimationEnd={() => setJitter(false)}
+                >
+                  {source === "upload" ? (
+                    <div className={styles.fileRow}>
+                      <Field
+                        id="html-file"
+                        label="HTML file"
+                        type="file"
+                        accept=".html,.htm,text/html"
+                        onChange={handleFile}
+                        hint="Only .html / .htm files."
+                      />
+                      {fileName && (
+                        <span className={styles.fileName}>{fileName}</span>
+                      )}
+                    </div>
+                  ) : (
                     <Field
-                      id="html-file"
-                      label="HTML file"
-                      type="file"
-                      accept=".html,.htm,text/html"
-                      onChange={handleFile}
-                      hint="Only .html / .htm files."
+                      as="textarea"
+                      id="html-source"
+                      label="HTML source"
+                      rows={14}
+                      spellCheck={false}
+                      placeholder="<html>…</html>"
+                      value={html}
+                      onChange={(e) => setHtml(e.target.value)}
+                      hint="Paste the full HTML body of the email — markup, not plain text."
                     />
-                    {fileName && (
-                      <span className={styles.fileName}>{fileName}</span>
-                    )}
-                  </div>
-                ) : (
-                  <Field
-                    as="textarea"
-                    id="html-source"
-                    label="HTML source"
-                    rows={14}
-                    spellCheck={false}
-                    placeholder="<html>…</html>"
-                    value={html}
-                    onChange={(e) => setHtml(e.target.value)}
-                    hint="Paste the full HTML body of the email — markup, not plain text."
-                  />
-                )}
+                  )}
+                </div>
 
                 {error && (
                   <p className={styles.error} role="alert">
