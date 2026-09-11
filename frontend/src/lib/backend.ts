@@ -29,6 +29,7 @@ export interface CampaignStats {
 export interface CampaignDetail {
   id: string;
   name: string;
+  subject: string | null;
   openToken: string;
   sentCount: number;
   createdAt: string;

@@ -10,6 +10,7 @@ import express, {
 import { authenticate } from "./middleware/auth.js";
 import { authRouter } from "./routes/auth.js";
 import { campaignsRouter, processRouter } from "./routes/campaigns.js";
+import { sendingRouter } from "./routes/sending.js";
 import { trackRouter } from "./routes/track.js";
 
 export function createApp() {
@@ -40,6 +41,7 @@ export function createApp() {
 
   // Everything else requires a valid access token.
   app.use("/api/campaigns", authenticate, campaignsRouter);
+  app.use("/api/campaigns", authenticate, sendingRouter);
   app.use("/api", authenticate, processRouter);
 
   app.use((req: Request, res: Response) => {

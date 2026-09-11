@@ -29,7 +29,7 @@ function toFileName(name: string): string {
 
 export default function NewCampaignPage() {
   const [name, setName] = useState("");
-  const [sentCount, setSentCount] = useState("0");
+  const [subject, setSubject] = useState("");
   const [source, setSource] = useState<Source>("upload");
   const [html, setHtml] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -37,6 +37,8 @@ export default function NewCampaignPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [jitter, setJitter] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const sourceContentRef = useRef<HTMLDivElement>(null);
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -99,8 +101,8 @@ export default function NewCampaignPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
+          subject: subject.trim(),
           html,
-          sentCount: Number(sentCount) || 0,
         }),
       });
 
@@ -138,6 +140,18 @@ export default function NewCampaignPage() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function copyProcessedHtml() {
+    if (!result) return;
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(result.processedHtml);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyError("Could not copy — your browser blocked clipboard access.");
+    }
   }
 
   return (
@@ -194,9 +208,49 @@ export default function NewCampaignPage() {
                 </div>
 
                 <div>
-                  <label className={styles.sourceLabel} htmlFor="processed-html">
-                    Processed HTML (read-only)
-                  </label>
+                  <div className={styles.previewHead}>
+                    <label className={styles.sourceLabel} htmlFor="processed-html">
+                      Processed HTML (read-only)
+                    </label>
+                    <button
+                      type="button"
+                      className={styles.copyIconButton}
+                      onClick={copyProcessedHtml}
+                      aria-label="Copy processed HTML"
+                      title={copied ? "Copied!" : "Copy HTML"}
+                    >
+                      {copied ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path
+                            d="M20 6 9 17l-5-5"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <rect
+                            x="9"
+                            y="9"
+                            width="12"
+                            height="12"
+                            rx="2"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                          />
+                          <path
+                            d="M5 15V5a2 2 0 0 1 2-2h10"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      )}
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
                   <textarea
                     id="processed-html"
                     className={styles.preview}
@@ -205,34 +259,34 @@ export default function NewCampaignPage() {
                     spellCheck={false}
                     rows={14}
                   />
+                  {copyError && (
+                    <p className={styles.error}>{copyError}</p>
+                  )}
                 </div>
               </div>
             </Card>
           ) : (
             <Card title="Campaign">
               <form className={styles.form} onSubmit={handleSubmit} noValidate>
-                <div className={styles.pair}>
-                  <Field
-                    id="campaign-name"
-                    label="Campaign name"
-                    placeholder="September newsletter"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    autoComplete="off"
-                    required
-                  />
-                  <Field
-                    id="sent-count"
-                    label="Emails to send"
-                    type="number"
-                    min={0}
-                    step={1}
-                    inputMode="numeric"
-                    value={sentCount}
-                    onChange={(e) => setSentCount(e.target.value)}
-                    hint="Used for the rate maths — editable later."
-                  />
-                </div>
+                <Field
+                  id="campaign-name"
+                  label="Campaign name"
+                  placeholder="September newsletter"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="off"
+                  required
+                />
+
+                <Field
+                  id="campaign-subject"
+                  label="Subject line"
+                  placeholder="Defaults to the campaign name if left blank"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  autoComplete="off"
+                  hint="Used only when sending via the platform — editable later under Edit campaign."
+                />
 
                 <div>
                   <span className={styles.sourceLabel}>Email HTML</span>
@@ -339,13 +393,6 @@ export default function NewCampaignPage() {
               <li>Paste the tracked HTML as the message source.</li>
               <li>Send.</li>
             </ol>
-            <p className={styles.tip}>
-              Add <code className={styles.code}>data-no-track</code> to any anchor
-              you want left alone — unsubscribe links, for example.{" "}
-              <code className={styles.code}>mailto:</code>,{" "}
-              <code className={styles.code}>tel:</code>, anchors and relative URLs
-              are skipped automatically.
-            </p>
             <p className={styles.tip}>
               Open rate is approximate: image blocking hides opens and Apple Mail
               Privacy pre-loads pixels. Per-link clicks are the reliable signal.

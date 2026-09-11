@@ -8,20 +8,52 @@ datasource db {
 }
 
 model Campaign {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   name          String
-  openToken     String   @unique
-  sentCount     Int      @default(0)
-  createdAt     DateTime @default(now())
-  processedHtml String?  @db.LongText
+  /// Email subject line for platform-send. Null = falls back to `name` —
+  /// see routes/sending.ts subjectFor().
+  subject       String?
+  openToken     String    @unique
+  sentCount     Int       @default(0)
+  createdAt     DateTime  @default(now())
+  processedHtml String?   @db.LongText
+  firstSentAt   DateTime?
 
-  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  links  Link[]
-  opens  OpenEvent[]
-  clicks ClickEvent[]
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  links      Link[]
+  opens      OpenEvent[]
+  clicks     ClickEvent[]
+  recipients Recipient[]
 
   @@index([userId])
+}
+
+/// A single email address a campaign is (or was) sent to via platform SMTP
+/// send. `id` doubles as the `?r=` recipient token embedded in that
+/// recipient's personalized tracking URLs — see lib/mailer.ts.
+model Recipient {
+  id         String    @id @default(cuid())
+  campaignId String
+  email      String
+  status     String    @default("pending") // pending | sending | sent | failed
+  error      String?   @db.Text
+  /// Send-test-to-self row. Excluded from every analytics query by default —
+  /// verified in isolation instead (see lib/query.ts).
+  isTest     Boolean   @default(false)
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  campaign Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  opens    OpenEvent[]
+  clicks   ClickEvent[]
+
+  // Not just [campaignId, email]: a test-send-to-self must never collide with
+  // (and silently flip isTest off on) a real recipient row that happens to
+  // share the same address — that would leak test activity into real
+  // campaign analytics. isTest is part of the key so they stay distinct rows.
+  @@unique([campaignId, email, isTest])
+  @@index([campaignId])
 }
 
 model Link {
@@ -38,32 +70,36 @@ model Link {
 }
 
 model OpenEvent {
-  id           String   @id @default(cuid())
-  campaignId   String
-  recipientRef String?
-  ip           String?
-  userAgent    String?  @db.Text
-  createdAt    DateTime @default(now())
+  id          String   @id @default(cuid())
+  campaignId  String
+  recipientId String?
+  ip          String?
+  userAgent   String?  @db.Text
+  createdAt   DateTime @default(now())
 
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient Recipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
+  @@index([recipientId])
 }
 
 model ClickEvent {
-  id           String   @id @default(cuid())
-  linkId       String
-  campaignId   String
-  recipientRef String?
-  ip           String?
-  userAgent    String?  @db.Text
-  createdAt    DateTime @default(now())
+  id          String   @id @default(cuid())
+  linkId      String
+  campaignId  String
+  recipientId String?
+  ip          String?
+  userAgent   String?  @db.Text
+  createdAt   DateTime @default(now())
 
-  link     Link     @relation(fields: [linkId], references: [id], onDelete: Cascade)
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  link      Link       @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  campaign  Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient Recipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
   @@index([linkId])
+  @@index([recipientId])
 }
 
 /// A logged-in operator. Accounts are created only via the create-user CLI

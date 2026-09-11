@@ -9,18 +9,22 @@ import styles from "./dashboard.module.css";
 export interface CampaignEditorProps {
   id: string;
   name: string;
+  subject: string | null;
 }
 
 type Source = "upload" | "paste";
 
-export function CampaignEditor({ id, name: initialName }: CampaignEditorProps) {
+export function CampaignEditor({ id, name: initialName, subject: initialSubject }: CampaignEditorProps) {
   const router = useRouter();
 
   const [name, setName] = useState(initialName);
+  const [subject, setSubject] = useState(initialSubject ?? "");
   const [savingName, setSavingName] = useState(false);
   const [nameStatus, setNameStatus] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
-  const nameDirty = name.trim() !== initialName.trim() && name.trim().length > 0;
+  const nameDirty =
+    (name.trim() !== initialName.trim() && name.trim().length > 0) ||
+    subject.trim() !== (initialSubject ?? "").trim();
 
   const [replacing, setReplacing] = useState(false);
   const [source, setSource] = useState<Source>("upload");
@@ -46,12 +50,12 @@ export function CampaignEditor({ id, name: initialName }: CampaignEditorProps) {
       const response = await apiFetch(`/api/campaigns/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, subject: subject.trim() }),
       });
       if (!response.ok) {
-        throw new Error(`Could not save the name (${response.status}).`);
+        throw new Error(`Could not save (${response.status}).`);
       }
-      setNameStatus("Name updated.");
+      setNameStatus("Saved.");
       router.refresh();
     } catch (err) {
       setNameError(err instanceof Error ? err.message : "Could not save.");
@@ -143,13 +147,25 @@ export function CampaignEditor({ id, name: initialName }: CampaignEditorProps) {
             autoComplete="off"
           />
         </div>
+        <div className={styles.nameField}>
+          <Field
+            id="campaign-subject"
+            label="Subject line"
+            placeholder="Defaults to the campaign name"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            autoComplete="off"
+            hint="Used when sending via the platform. Leave blank to fall back to the campaign name."
+          />
+        </div>
         <Button
           type="submit"
           variant="secondary"
           disabled={savingName}
           shimmer={nameDirty && !savingName}
+          className={styles.controlsButton}
         >
-          {savingName ? "Saving…" : "Save name"}
+          {savingName ? "Saving…" : "Save"}
         </Button>
       </form>
       {(nameError || nameStatus) && (

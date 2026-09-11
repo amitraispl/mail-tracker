@@ -18,9 +18,48 @@
 }
 
 .linkLabel{
+  display:flex;
+  align-items:center;
+  gap:var(--space-2);
   color:var(--color-text-primary);
   font-weight:var(--weight-medium);
   overflow-wrap:anywhere;
+}
+
+.mostClickedBadge{
+  flex:none;
+  padding:2px var(--space-2);
+  background:var(--color-surface);
+  border:1px solid var(--color-primary);
+  border-radius:999px;
+  color:var(--color-primary);
+  font-family:var(--font-sans);
+  font-size:var(--text-xs);
+  font-weight:var(--weight-medium);
+  white-space:nowrap;
+}
+
+.clickCell{
+  position:relative;
+  display:block;
+  padding:6px 0;
+}
+
+.clickBar{
+  position:absolute;
+  top:0;
+  bottom:0;
+  right:0;
+  height:100%;
+  background:var(--color-accent-muted);
+  border-radius:var(--radius-sm);
+  opacity:.35;
+  transition:width .2s ease;
+}
+
+.clickValue{
+  position:relative;
+  z-index:1;
 }
 
 .url{
@@ -50,9 +89,19 @@
 
 .controls{
   display:flex;
-  align-items:flex-end;
+  /* flex-end broke when the subject field grew a hint line the name field
+     doesn't have — its label/input would sit lower than the subject
+     field's. Align tops instead, and nudge the button down to the inputs'
+     row with .controlsButton below. */
+  align-items:flex-start;
   gap:var(--space-3);
   flex-wrap:wrap;
+}
+
+.controlsButton{
+  /* Matches Field's label row height (text-sm line-height + its gap to the
+     input) so the button lines up with the input boxes, not the labels. */
+  margin-top:26px;
 }
 
 .controlField{flex:0 0 160px;}

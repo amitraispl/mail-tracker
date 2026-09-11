@@ -405,12 +405,18 @@ bearer-token mode.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/process` | `{ name, html, sentCount? }` → injects the tracking pixel, rewrites every `<a href>` (skips `mailto:`, `tel:`, `#`, relative URLs, and anything with `data-no-track`), creates the `Campaign` + `Link` rows. Returns `{ id, processedHtml, linkCount }`. |
+| `POST` | `/api/process` | `{ name, subject?, html }` → injects the tracking pixel, rewrites every `<a href>` (skips `mailto:`, `tel:`, `#`, relative URLs, and anything with `data-no-track`), creates the `Campaign` + `Link` rows. `sentCount` always starts at 0. Returns `{ id, processedHtml, linkCount }`. |
 | `GET` | `/api/campaigns` | Lists all campaigns, newest first, with `_count.{opens,clicks,links}`. |
-| `GET` | `/api/campaigns/:id` | Full detail: stats, per-link click breakdown, stored `processedHtml`. 404 if not found. |
-| `PATCH` | `/api/campaigns/:id` | `{ name?, html? }`. Renaming just updates the name. Replacing `html` keeps the same open-pixel token (open history stays valid) but **deletes and recreates every `Link`**, which cascades away that campaign's click history and issues new link tokens. |
-| `DELETE` | `/api/campaigns/:id` | Deletes the campaign and cascades every link, open, and click logged against it. Irreversible. |
-| `POST` | `/api/campaigns/:id/sent` | `{ sentCount }` — manually record how many emails Carbonio actually sent (this app has no visibility into Carbonio's send count itself). |
+| `GET` | `/api/campaigns/:id` | Full detail: stats, per-link click breakdown (most-clicked first), stored `processedHtml`. 404 if not found. |
+| `PATCH` | `/api/campaigns/:id` | `{ name?, subject?, html? }`. Renaming just updates the name; `subject: ""` clears the override back to falling through to `name`. Replacing `html` keeps the same open-pixel token (open history stays valid) but **deletes and recreates every `Link`**, which cascades away that campaign's click history, and wipes its `OpenEvent`s too — treated as a fresh send. |
+| `DELETE` | `/api/campaigns/:id` | Deletes the campaign and cascades every link, recipient, open, and click logged against it. Irreversible. |
+| `POST` | `/api/campaigns/:id/recipients` | `{ emails }` (newline/comma-separated) → adds `Recipient` rows for a platform send. |
+| `GET` | `/api/campaigns/:id/recipients` | `{ recipients, summary }` — per-recipient status/open/click detail plus a `{pending,sending,sent,failed}` summary. |
+| `GET` | `/api/campaigns/:id/recipients/:recipientId` | Full detail for one recipient, including the actual open/click event timeline. |
+| `DELETE` | `/api/campaigns/:id/recipients/:recipientId` | Removes one recipient row. |
+| `POST` | `/api/campaigns/:id/send-test` | Sends one personalized copy to the caller's own account address; never counts toward campaign totals. |
+| `POST` | `/api/campaigns/:id/send` | Kicks off an async send to every pending recipient over the shared SMTP mailbox — see Operational notes. |
+| `GET` | `/api/campaigns/:id/activity` | Recent open/click feed, newest first, real recipients only. |
 
 ## Database schema
 
@@ -421,10 +427,11 @@ silently drop columns/tables that no longer exist in the schema file).
 
 | Model | Key fields | Notes |
 |---|---|---|
-| `Campaign` | `id`, `name`, `openToken` (unique), `sentCount`, `createdAt`, `processedHtml` | One row per campaign. `processedHtml` stores the full tracked HTML so it can be re-downloaded later. |
+| `Campaign` | `id`, `name`, `subject?`, `openToken` (unique), `sentCount`, `createdAt`, `processedHtml`, `firstSentAt?` | One row per campaign. `processedHtml` stores the full tracked HTML so it can be re-downloaded later. `sentCount` is server-only — only the send loop increments it. |
 | `Link` | `id`, `token` (unique), `originalUrl`, `label`, `campaignId` | One row per rewritten link in a campaign. Deleted/recreated on HTML replace. |
-| `OpenEvent` | `id`, `campaignId`, `recipientRef?`, `ip?`, `userAgent?`, `createdAt` | One row per pixel hit. No dedup — every hit is logged. |
-| `ClickEvent` | `id`, `linkId`, `campaignId`, `recipientRef?`, `ip?`, `userAgent?`, `createdAt` | One row per link click. No dedup. |
+| `Recipient` | `id`, `campaignId`, `email`, `status`, `error?`, `isTest`, `sentAt?`, `createdAt` | One row per email a campaign was (or will be) platform-sent to. `id` is the `?r=` value in that recipient's personalized tracking URLs. `isTest` rows are send-test-to-self copies, excluded from analytics. |
+| `OpenEvent` | `id`, `campaignId`, `recipientId?`, `ip?`, `userAgent?`, `createdAt` | One row per pixel hit. No dedup — every hit is logged. `recipientId` is a real FK, nullable for manual-paste campaigns. |
+| `ClickEvent` | `id`, `linkId`, `campaignId`, `recipientId?`, `ip?`, `userAgent?`, `createdAt` | One row per link click. No dedup. |
 | `User` | `id`, `email` (unique), `passwordHash`, `createdAt` | Operator accounts. Created only via `create-user`. |
 | `RefreshToken` | `id`, `userId`, `tokenHash` (unique), `expiresAt`, `revokedAt?`, `replacedByTokenId?`, `userAgent?`, `ip?` | The raw refresh token is never stored — only its SHA-256 hash. |
 
@@ -719,12 +726,14 @@ rate-computed, on purpose.
 
 - No file storage/uploads — everything (processed HTML, stats, accounts)
   lives in MySQL. No S3/blob storage dependency.
-- No background jobs, queues, or cron — all work happens synchronously on
-  request.
+- No queues or cron; the one exception is a platform send (`POST
+  /api/campaigns/:id/send`), which responds immediately and runs its send
+  loop fire-and-forget on the same process — sequential, not parallel, since
+  every campaign shares one SMTP mailbox/connection pool. Poll `GET
+  .../recipients` for progress. Everything else happens synchronously on request.
 - No plain-text email path — only HTML campaigns are supported, by design.
-- `sentCount` is entered manually in the UI; neither service has visibility
-  into Carbonio's actual send count, so totals are only as accurate as that
-  manually-entered number.
+- `sentCount` is a live count of actual platform sends (incremented once per
+  successful send in the loop above) — there is no manual-entry path for it.
 - Database migrations use `prisma db push`, not `prisma migrate` — there is
   no migration history file. Fine at this project's size; just always
   review the diff Prisma prints before confirming against production.

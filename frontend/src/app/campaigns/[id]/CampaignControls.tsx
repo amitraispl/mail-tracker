@@ -1,15 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
-import { Button, Field } from "@/components";
-import { apiFetch } from "@/lib/api";
+import { useState } from "react";
+import { Button } from "@/components";
 import styles from "./dashboard.module.css";
 
 export interface CampaignControlsProps {
   id: string;
   name: string;
-  sentCount: number;
   /** The stored tracked HTML; null when the campaign predates storage. */
   processedHtml: string | null;
 }
@@ -19,49 +16,9 @@ function toFileName(name: string): string {
   return `${safe || "campaign"}-tracked.html`;
 }
 
-export function CampaignControls({
-  id,
-  name,
-  sentCount,
-  processedHtml,
-}: CampaignControlsProps) {
-  const router = useRouter();
-  const [value, setValue] = useState(String(sentCount));
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function CampaignControls({ name, processedHtml }: CampaignControlsProps) {
   const [copied, setCopied] = useState(false);
-  const valueDirty = value.trim() !== "" && Number(value) !== sentCount;
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setStatus(null);
-
-    const next = Number(value);
-    if (!Number.isFinite(next) || next < 0) {
-      setError("Enter a send count of 0 or more.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const response = await apiFetch(`/api/campaigns/${id}/sent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sentCount: Math.round(next) }),
-      });
-      if (!response.ok) {
-        throw new Error(`Could not save the send count (${response.status}).`);
-      }
-      setStatus("Send count updated.");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const [error, setError] = useState<string | null>(null);
 
   function download() {
     if (!processedHtml) return;
@@ -89,37 +46,13 @@ export function CampaignControls({
   }
 
   return (
-    <form onSubmit={save} noValidate>
+    <div>
       <div className={styles.controls}>
-        <div className={styles.controlField}>
-          <Field
-            id="sent-count"
-            label="Emails sent"
-            type="number"
-            min={0}
-            step={1}
-            inputMode="numeric"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </div>
-        <Button
-          type="submit"
-          variant="secondary"
-          disabled={saving}
-          shimmer={valueDirty && !saving}
-        >
-          {saving ? "Saving…" : "Save"}
-        </Button>
         <Button
           variant="secondary"
           onClick={copy}
           disabled={!processedHtml}
-          title={
-            processedHtml
-              ? undefined
-              : "No tracked HTML stored for this campaign."
-          }
+          title={processedHtml ? undefined : "No tracked HTML stored for this campaign."}
         >
           {copied ? "Copied!" : "Copy HTML"}
         </Button>
@@ -127,26 +60,17 @@ export function CampaignControls({
           variant="secondary"
           onClick={download}
           disabled={!processedHtml}
-          title={
-            processedHtml
-              ? undefined
-              : "No tracked HTML stored for this campaign."
-          }
+          title={processedHtml ? undefined : "No tracked HTML stored for this campaign."}
         >
           Download tracked HTML
         </Button>
       </div>
-      {(error || status) && (
-        <p
-          className={[styles.status, error ? styles.statusError : null]
-            .filter(Boolean)
-            .join(" ")}
-          role={error ? "alert" : "status"}
-        >
-          {error ?? status}
+      {error && (
+        <p className={[styles.status, styles.statusError].join(" ")} role="alert">
+          {error}
         </p>
       )}
-    </form>
+    </div>
   );
 }
 

@@ -11,6 +11,7 @@ export interface PerLinkStats {
 export interface CampaignDetail {
   id: string;
   name: string;
+  subject: string | null;
   openToken: string;
   sentCount: number;
   createdAt: Date;
@@ -24,7 +25,8 @@ export async function loadCampaign(id: string, userId: string): Promise<Campaign
     where: { id, userId },
     include: {
       links: {
-        orderBy: { id: "asc" },
+        // Most-clicked first, so the ranking UI doesn't need to re-sort.
+        orderBy: [{ clicks: { _count: "desc" } }, { id: "asc" }],
         include: { _count: { select: { clicks: true } } },
       },
       _count: { select: { opens: true, clicks: true } },
@@ -45,12 +47,11 @@ export async function loadCampaign(id: string, userId: string): Promise<Campaign
     rawOpens: campaign._count.opens,
     totalClicks: campaign._count.clicks,
   });
-  // stats.rawOpens is raw OpenEvent count — send-load noise correction
-  // happens client-side (frontend/src/lib/stats.ts), not here.
 
   return {
     id: campaign.id,
     name: campaign.name,
+    subject: campaign.subject,
     openToken: campaign.openToken,
     sentCount: campaign.sentCount,
     createdAt: campaign.createdAt,

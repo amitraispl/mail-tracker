@@ -8,17 +8,19 @@ const NO_STORE = "no-store, no-cache, must-revalidate, private";
 interface TrackingContext {
   ip: string | null;
   userAgent: string | null;
-  recipientRef: string | null;
+  recipientId: string | null;
 }
 
-/** Optional `?r=` recipient identifier the sender embedded in the URL. */
+/** Optional `?r=` recipient id the sender embedded in the URL (see
+ *  lib/mailer.ts's per-recipient personalization). Not trusted blindly —
+ *  callers still validate it against the Recipient row before logging it. */
 function readTrackingContext(req: Request): TrackingContext {
   const forwardedFor = req.get("x-forwarded-for");
   const ip =
     forwardedFor?.split(",")[0]?.trim() || req.get("x-real-ip") || req.ip || null;
   const r = req.query.r;
-  const recipientRef = typeof r === "string" ? r.trim() || null : null;
-  return { ip: ip || null, userAgent: req.get("user-agent") ?? null, recipientRef };
+  const recipientId = typeof r === "string" ? r.trim() || null : null;
+  return { ip: ip || null, userAgent: req.get("user-agent") ?? null, recipientId };
 }
 
 /* ---- GET /api/track/open/:token — 1x1 pixel ---- */
@@ -36,9 +38,19 @@ trackRouter.get("/open/:token", async (req, res) => {
     });
 
     if (campaign) {
-      const { ip, userAgent, recipientRef } = readTrackingContext(req);
+      const { ip, userAgent, recipientId: candidateId } = readTrackingContext(req);
+      // Don't trust `r=` blindly — a forged/stale id from another campaign
+      // must never attribute an open to the wrong recipient.
+      const recipientId = candidateId
+        ? (
+            await prisma.recipient.findFirst({
+              where: { id: candidateId, campaignId: campaign.id },
+              select: { id: true },
+            })
+          )?.id ?? null
+        : null;
       await prisma.openEvent.create({
-        data: { campaignId: campaign.id, recipientRef, ip, userAgent },
+        data: { campaignId: campaign.id, recipientId, ip, userAgent },
       });
     }
   } catch (error) {
@@ -83,12 +95,20 @@ trackRouter.get("/click/:token", async (req, res) => {
     });
 
     if (link) {
-      const { ip, userAgent, recipientRef } = readTrackingContext(req);
+      const { ip, userAgent, recipientId: candidateId } = readTrackingContext(req);
+      const recipientId = candidateId
+        ? (
+            await prisma.recipient.findFirst({
+              where: { id: candidateId, campaignId: link.campaignId },
+              select: { id: true },
+            })
+          )?.id ?? null
+        : null;
       await prisma.clickEvent.create({
         data: {
           linkId: link.id,
           campaignId: link.campaignId,
-          recipientRef,
+          recipientId,
           ip,
           userAgent,
         },

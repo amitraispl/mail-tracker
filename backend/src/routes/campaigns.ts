@@ -12,21 +12,19 @@ function publicBaseUrl(req: Request): string {
   return (configured || fallback).replace(/\/+$/, "");
 }
 
-/** `sent` is typed by hand, so accept "120" as well as 120; anything else is 0. */
-function toSentCount(value: unknown): number {
-  const n = typeof value === "string" ? Number(value.trim()) : value;
-  if (typeof n !== "number" || !Number.isFinite(n)) return 0;
-  return Math.max(0, Math.trunc(n));
-}
-
 /* ---- POST /api/process ---- */
 
 export const processRouter = Router();
 
 processRouter.post("/process", async (req, res) => {
-  const body = (req.body ?? {}) as { name?: unknown; html?: unknown; sentCount?: unknown };
+  const body = (req.body ?? {}) as {
+    name?: unknown;
+    subject?: unknown;
+    html?: unknown;
+  };
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  const subject = typeof body.subject === "string" ? body.subject.trim() : "";
   const html = typeof body.html === "string" ? body.html : "";
 
   if (!name || !html.trim()) {
@@ -42,8 +40,11 @@ processRouter.post("/process", async (req, res) => {
     data: {
       userId: req.userId!,
       name,
+      subject: subject || null,
       openToken,
-      sentCount: toSentCount(body.sentCount),
+      // Only the send loop increments this from here on (routes/sending.ts
+      // runSendLoop) — it's a live count of actual sends, not a manual entry.
+      sentCount: 0,
       processedHtml,
       links: {
         create: links.map((link) => ({
@@ -70,9 +71,6 @@ campaignsRouter.get("/", async (req, res) => {
     include: { _count: { select: { opens: true, clicks: true, links: true } } },
   });
 
-  // `_count.opens` is the raw OpenEvent count — the send-load noise
-  // correction happens client-side (frontend/src/lib/stats.ts), same as the
-  // campaign-detail endpoint.
   res.json(campaigns);
 });
 
@@ -87,7 +85,7 @@ campaignsRouter.get("/:id", async (req, res) => {
 
 campaignsRouter.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const body = (req.body ?? {}) as { name?: unknown; html?: unknown };
+  const body = (req.body ?? {}) as { name?: unknown; subject?: unknown; html?: unknown };
 
   const campaign = await prisma.campaign.findFirst({
     where: { id, userId: req.userId! },
@@ -107,6 +105,12 @@ campaignsRouter.patch("/:id", async (req, res) => {
       return;
     }
     data.name = name;
+  }
+
+  // Empty string clears the override back to falling through to `name` —
+  // see routes/sending.ts subjectFor().
+  if (typeof body.subject === "string") {
+    data.subject = body.subject.trim() || null;
   }
 
   let linkCount: number | null = null;
@@ -170,31 +174,3 @@ campaignsRouter.delete("/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-campaignsRouter.post("/:id/sent", async (req, res) => {
-  const { id } = req.params;
-  const body = (req.body ?? {}) as { sentCount?: unknown };
-
-  const raw =
-    typeof body.sentCount === "string" ? Number(body.sentCount.trim()) : body.sentCount;
-
-  if (
-    typeof raw !== "number" ||
-    !Number.isFinite(raw) ||
-    !Number.isInteger(raw) ||
-    raw < 0
-  ) {
-    res.status(400).json({ error: "`sentCount` must be an integer of 0 or more." });
-    return;
-  }
-
-  const { count } = await prisma.campaign.updateMany({
-    where: { id, userId: req.userId! },
-    data: { sentCount: raw },
-  });
-  if (count === 0) {
-    res.status(404).json({ error: "Campaign not found." });
-    return;
-  }
-
-  res.json({ ok: true });
-});
