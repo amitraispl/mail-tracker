@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/backend";
 import { Card, Eyebrow, PageHeader, buttonClassName } from "@/components";
+import { HealthCheckButton } from "./HealthCheckButton";
 import { ProfileForm } from "./ProfileForm";
 import styles from "./profile.module.css";
 
@@ -28,6 +29,10 @@ export default async function ProfilePage() {
         <div className={styles.panel}>
           <Card title="Account" description={`Signed in as ${user.email}`}>
             <ProfileForm email={user.email} />
+          </Card>
+
+          <Card title="System" description="Confirm the backend API is reachable.">
+            <HealthCheckButton />
           </Card>
         </div>
       </main>

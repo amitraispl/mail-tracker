@@ -10,7 +10,12 @@ const BACKEND_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    return [{ source: "/api/:path*", destination: `${BACKEND_ORIGIN}/api/:path*` }];
+    return [
+      { source: "/api/:path*", destination: `${BACKEND_ORIGIN}/api/:path*` },
+      // Not under /api — proxied separately so the frontend can health-check
+      // the backend via a same-origin relative path (see profile/HealthCheckButton.tsx).
+      { source: "/healthz", destination: `${BACKEND_ORIGIN}/healthz` },
+    ];
   },
 };
 
