@@ -226,8 +226,10 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
       key: "status",
       header: "Status",
       cell: (r) => (
-        <span className={r.status === "failed" ? styles.statusFailed : undefined}>
-          {statusLabel[r.status]}
+        <span>
+          <span className={styles.statusBadge} data-status={r.status}>
+            {statusLabel[r.status]}
+          </span>
           {r.error && <span className={styles.errorNote}> — {r.error}</span>}
         </span>
       ),
@@ -253,7 +255,7 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
       key: "actions",
       header: "",
       cell: (r) =>
-        r.status === "pending" ? (
+        r.status === "sending" ? null : (
           <span className={styles.rowActions}>
             <button
               type="button"
@@ -261,7 +263,7 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
               onClick={() => sendOne(r.id)}
               disabled={sendingIds.has(r.id)}
             >
-              {sendingIds.has(r.id) ? "Sending…" : "Send"}
+              {sendingIds.has(r.id) ? "Sending…" : r.status === "pending" ? "Send" : "Resend"}
             </button>
             <button
               type="button"
@@ -272,7 +274,7 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
               Remove
             </button>
           </span>
-        ) : null,
+        ),
       width: "130px",
     },
   ];
@@ -371,6 +373,7 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
           campaignId={campaignId}
           recipientId={openRecipientId}
           onClose={() => setOpenRecipientId(null)}
+          onChanged={load}
         />
       )}
     </div>

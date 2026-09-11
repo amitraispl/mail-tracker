@@ -28,6 +28,14 @@ function getTransport(): Transporter {
     pool: true,
     maxConnections: 5,
     maxMessages: 100,
+    // Nodemailer's defaults are multi-minute (up to 10min socketTimeout) — a
+    // slow/blocked path to the SMTP host would hang a send that long, making
+    // every recipient sit in "sending" while the frontend correctly keeps
+    // polling. Fail fast instead so a bad send shows up as `failed` in
+    // seconds, not minutes.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
   });
 
   return transport;
