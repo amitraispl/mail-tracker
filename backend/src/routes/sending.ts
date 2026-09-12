@@ -13,11 +13,15 @@ interface OwnedCampaign {
   processedHtml: string | null;
 }
 
+// TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts's sendMail(). Remove together.
 async function requireCampaign(id: string, userId: string): Promise<OwnedCampaign | null> {
-  return prisma.campaign.findFirst({
+  console.log("Fetching campaign");
+  const campaign = await prisma.campaign.findFirst({
     where: { id, userId },
     select: { id: true, name: true, subject: true, openToken: true, processedHtml: true },
   });
+  console.log("Campaign fetched");
+  return campaign;
 }
 
 /** Falls back to the campaign name when no subject override is set. */
@@ -191,6 +195,7 @@ sendingRouter.delete("/:id/recipients/:recipientId", async (req, res) => {
 /* ---- sending ---- */
 
 sendingRouter.post("/:id/send-test", async (req, res) => {
+  console.log("Request received"); // TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts
   const { id } = req.params;
   const campaign = await requireCampaign(id, req.userId!);
   if (!campaign) {
@@ -310,6 +315,7 @@ async function runSendLoop(campaignId: string, html: string, subject: string) {
  *  bulk `/send` below, for "just resend/send this one" without touching the
  *  rest of the list. */
 sendingRouter.post("/:id/recipients/:recipientId/send", async (req, res) => {
+  console.log("Request received"); // TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts
   const { id, recipientId } = req.params;
   const campaign = await requireCampaign(id, req.userId!);
   if (!campaign) {
@@ -340,6 +346,7 @@ sendingRouter.post("/:id/recipients/:recipientId/send", async (req, res) => {
 });
 
 sendingRouter.post("/:id/send", async (req, res) => {
+  console.log("Request received"); // TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts
   const { id } = req.params;
   const campaign = await requireCampaign(id, req.userId!);
   if (!campaign) {

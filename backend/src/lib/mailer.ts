@@ -7,6 +7,8 @@ let transport: Transporter | null = null;
 function getTransport(): Transporter {
   if (transport) return transport;
 
+  console.log("Creating transporter");
+
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT ?? 587);
   const username = process.env.SMTP_USERNAME;
@@ -51,12 +53,24 @@ function fromHeader(): string {
 }
 
 /** Sends one HTML email. Throws on failure — callers decide whether that's
- *  fatal (a diagnostic test-send) or per-row (a campaign send loop). */
+ *  fatal (a diagnostic test-send) or per-row (a campaign send loop).
+ *
+ * TEMP DIAGNOSTIC LOGGING — pinpointing a prod hang (Vercel rewrite timing
+ * out waiting on Render, no response at all within 120s). Remove once the
+ * root cause is confirmed; not meant to stay long-term. */
 export async function sendMail(to: string, subject: string, html: string): Promise<void> {
-  await getTransport().sendMail({
+  const transporter = getTransport();
+
+  console.log("Connecting SMTP");
+  await transporter.verify();
+  console.log("SMTP connected");
+
+  console.log("Sending mail");
+  await transporter.sendMail({
     from: fromHeader(),
     to,
     subject,
     html,
   });
+  console.log("Mail sent");
 }
