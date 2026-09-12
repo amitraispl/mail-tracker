@@ -1,4 +1,32 @@
+import { connect } from "node:net";
 import nodemailer, { type Transporter } from "nodemailer";
+
+/** TEMP DIAGNOSTIC — raw TCP connect to the SMTP host, bypassing nodemailer
+ *  entirely. Isolates "can we reach the host/port at all from this network"
+ *  from "does the SMTP/TLS/auth handshake work" — no shell access on this
+ *  Render plan, so this runs the same check a `nc -zv` would, automatically,
+ *  as part of the next send attempt. Remove together with the rest of the
+ *  TEMP DIAGNOSTIC logging once resolved. */
+function probeRawConnection(host: string, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const socket = connect({ host, port, timeout: 8_000 });
+    socket.once("connect", () => {
+      console.log(`Raw TCP probe: OPEN (${Date.now() - started}ms)`);
+      socket.destroy();
+      resolve();
+    });
+    socket.once("timeout", () => {
+      console.log(`Raw TCP probe: TIMEOUT after ${Date.now() - started}ms — port likely blocked/dropped`);
+      socket.destroy();
+      reject(new Error("Raw TCP probe timed out"));
+    });
+    socket.once("error", (err: NodeJS.ErrnoException) => {
+      console.log(`Raw TCP probe: ERROR ${err.code} after ${Date.now() - started}ms`);
+      reject(err);
+    });
+  });
+}
 
 /** One pooled connection, built once at boot from env — see .env.example.
  *  Shared by every user's campaign send; there is no per-user SMTP config. */
@@ -60,6 +88,12 @@ function fromHeader(): string {
  * root cause is confirmed; not meant to stay long-term. */
 export async function sendMail(to: string, subject: string, html: string): Promise<void> {
   const transporter = getTransport();
+
+  console.log("Raw TCP probe: connecting");
+  await probeRawConnection(
+    process.env.SMTP_HOST!,
+    Number(process.env.SMTP_PORT ?? 587),
+  );
 
   console.log("Connecting SMTP");
   await transporter.verify();
