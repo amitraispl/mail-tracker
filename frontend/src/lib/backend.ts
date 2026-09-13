@@ -24,6 +24,8 @@ export interface CampaignStats {
   sent: number;
   rawOpens: number;
   totalClicks: number;
+  uniqueOpens: number;
+  uniqueClicks: number;
 }
 
 export interface CampaignDetail {

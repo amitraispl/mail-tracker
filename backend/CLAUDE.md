@@ -58,12 +58,17 @@ warrant it; check the diff output before confirming on prod, a push can drop
 columns).
 
 ## Stats — no rates, ever
-`lib/stats.ts` / `lib/query.ts` return raw totals only: `{ sent, rawOpens,
-totalClicks }` and per-link `{ totalClicks }`. **No unique/dedup counting, no
-%-based CTR/open-rate math anywhere.** This was a deliberate product call (one
-shared HTML blob sent to every recipient makes both unique-actor attribution and
-%-based rates read as more precise than the data supports) — don't reintroduce rate
-math without being asked. `rawOpens` is the unmodified `OpenEvent` count, shown
+`lib/stats.ts` / `lib/query.ts` return raw totals: `{ sent, rawOpens,
+totalClicks }` and per-link `{ totalClicks }`. **No %-based CTR/open-rate math
+anywhere** — that's still a deliberate product call (one shared HTML blob sent to
+every recipient makes %-based rates read as more precise than the data supports).
+`uniqueOpens`/`uniqueClicks` (added 2026-09) are the one intentional exception to
+"no dedup": a per-recipient headcount (`lib/query.ts` `loadCampaign`, distinct
+`recipientId` on `OpenEvent`/`ClickEvent`, `isTest` and null-`recipientId` rows
+excluded) — a recipient counts once toward `uniqueClicks` no matter how many
+links or how many times they clicked. Requested explicitly by the user; don't
+extend this into rate math without being asked again. `rawOpens` is the
+unmodified `OpenEvent` count, shown
 as-is — no send-load correction of any kind (there used to be a client-side
 `rawOpens - sent` subtraction; removed, it undercounted whenever the send-time
 pixel load didn't actually happen). `sent` is `Campaign.sentCount`, which only

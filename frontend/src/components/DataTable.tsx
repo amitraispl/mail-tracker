@@ -20,6 +20,9 @@ export interface DataTableProps<Row> {
   /** Shown in place of the body when there are no rows. */
   empty?: ReactNode;
   caption?: ReactNode;
+  /** Makes every row clickable (e.g. open a detail view). Clicks inside
+   *  interactive cell content should call event.stopPropagation(). */
+  onRowClick?: (row: Row, index: number) => void;
 }
 
 export function DataTable<Row>({
@@ -28,6 +31,7 @@ export function DataTable<Row>({
   rowKey,
   empty = "No data yet.",
   caption,
+  onRowClick,
 }: DataTableProps<Row>) {
   return (
     <div className={styles.wrap}>
@@ -56,7 +60,13 @@ export function DataTable<Row>({
             </tr>
           ) : (
             rows.map((row, index) => (
-              <tr key={rowKey(row, index)} className={styles.row}>
+              <tr
+                key={rowKey(row, index)}
+                className={[styles.row, onRowClick ? styles.rowClickable : null]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={onRowClick ? () => onRowClick(row, index) : undefined}
+              >
                 {columns.map((col) => (
                   <td
                     key={col.key}

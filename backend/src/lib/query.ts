@@ -42,10 +42,30 @@ export async function loadCampaign(id: string, userId: string): Promise<Campaign
     totalClicks: link._count.clicks,
   }));
 
+  // Per-recipient headcount, not a rate: how many distinct email addresses
+  // opened/clicked at all, regardless of how many times or how many links.
+  // isTest recipients are excluded to match every other analytics query;
+  // events with no recipientId (manual-paste campaigns) can't be attributed
+  // to an address and are excluded rather than undercounted-as-1.
+  const [uniqueOpeners, uniqueClickers] = await Promise.all([
+    prisma.openEvent.findMany({
+      where: { campaignId: id, recipientId: { not: null }, recipient: { isTest: false } },
+      distinct: ["recipientId"],
+      select: { recipientId: true },
+    }),
+    prisma.clickEvent.findMany({
+      where: { campaignId: id, recipientId: { not: null }, recipient: { isTest: false } },
+      distinct: ["recipientId"],
+      select: { recipientId: true },
+    }),
+  ]);
+
   const stats = computeStats({
     sent: campaign.sentCount,
     rawOpens: campaign._count.opens,
     totalClicks: campaign._count.clicks,
+    uniqueOpens: uniqueOpeners.length,
+    uniqueClicks: uniqueClickers.length,
   });
 
   return {

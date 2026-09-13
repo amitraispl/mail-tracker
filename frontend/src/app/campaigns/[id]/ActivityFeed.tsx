@@ -16,9 +16,7 @@ export interface ActivityFeedProps {
 }
 
 function describe(item: ActivityItem): string {
-  return item.type === "open"
-    ? `${item.email} opened the mail`
-    : `${item.email} clicked ${item.linkLabel ?? "a link"}`;
+  return item.type === "open" ? item.email : `${item.email} → ${item.linkLabel ?? "a link"}`;
 }
 
 function relativeTime(iso: string): string {
@@ -29,6 +27,10 @@ function relativeTime(iso: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function timestamp(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", { hour12: false });
 }
 
 export function ActivityFeed({ campaignId }: ActivityFeedProps) {
@@ -57,19 +59,28 @@ export function ActivityFeed({ campaignId }: ActivityFeedProps) {
   }, [campaignId]);
 
   if (loaded && items.length === 0) {
-    return <p className={styles.emptyFeed}>No activity yet.</p>;
+    return (
+      <div className={styles.feedLog}>
+        <p className={styles.emptyFeed}>No activity yet — this fills in as recipients open and click.</p>
+      </div>
+    );
   }
 
   return (
-    <ul className={styles.feed}>
-      {items.map((item, i) => (
-        <li key={`${item.type}-${item.email}-${item.createdAt}-${i}`} className={styles.feedItem}>
-          <span className={styles.feedDot} data-type={item.type} aria-hidden="true" />
-          <span>{describe(item)}</span>
-          <span className={styles.feedTime}>{relativeTime(item.createdAt)}</span>
-        </li>
-      ))}
-    </ul>
+    <div className={styles.feedLog}>
+      <ul className={styles.feed}>
+        {items.map((item, i) => (
+          <li key={`${item.type}-${item.email}-${item.createdAt}-${i}`} className={styles.feedItem}>
+            <span className={styles.feedTimestamp}>{timestamp(item.createdAt)}</span>
+            <span className={styles.feedTag} data-type={item.type}>
+              {item.type === "open" ? "OPEN" : "CLICK"}
+            </span>
+            <span className={styles.feedText}>{describe(item)}</span>
+            <span className={styles.feedTime}>{relativeTime(item.createdAt)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

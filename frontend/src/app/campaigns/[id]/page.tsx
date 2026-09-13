@@ -27,6 +27,33 @@ const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+function OpenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function ClickIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <path
+        d="m5 3 4.5 16.5 2.2-6.3 6.3-2.2L5 3Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function linkColumns(maxClicks: number): Column<PerLinkStats>[] {
   return [
     {
@@ -62,12 +89,13 @@ function linkColumns(maxClicks: number): Column<PerLinkStats>[] {
       header: "Clicks",
       cell: (link) => (
         <span className={styles.clickCell}>
-          <span
-            className={styles.clickBar}
-            style={{ width: maxClicks > 0 ? `${(link.totalClicks / maxClicks) * 100}%` : "0%" }}
-            aria-hidden="true"
-          />
           <span className={styles.clickValue}>{link.totalClicks}</span>
+          <span className={styles.clickTrack} aria-hidden="true">
+            <span
+              className={styles.clickBar}
+              style={{ width: maxClicks > 0 ? `${(link.totalClicks / maxClicks) * 100}%` : "0%" }}
+            />
+          </span>
         </span>
       ),
       align: "right",
@@ -118,21 +146,44 @@ export default async function CampaignDashboardPage({
           <Card>
             <div className={styles.metrics}>
               <Stat
-                label="Total opens"
-                value={stats.rawOpens}
+                label="Unique opens"
+                value={stats.uniqueOpens}
                 accent
-                hint="No dedup"
+                hint="Recipients who opened at least once"
               />
               <Stat
-                label="Total clicks"
-                value={stats.totalClicks}
-                hint="Every link hit, no dedup"
+                label="Unique clicks"
+                value={stats.uniqueClicks}
+                hint="Recipients who clicked at least once"
               />
               <Stat
                 label="Emails sent"
                 value={stats.sent}
                 hint="Live count from the platform send"
               />
+            </div>
+            <div className={styles.rawMetrics}>
+              <span className={styles.rawMetricsLabel}>Raw totals, no dedup</span>
+              <div className={styles.rawMetricsRow}>
+                <span className={styles.rawMetric} data-tone="open">
+                  <span className={styles.rawMetricIcon} aria-hidden="true">
+                    <OpenIcon />
+                  </span>
+                  <span className={styles.rawMetricText}>
+                    <span className={styles.rawMetricValue}>{stats.rawOpens}</span>
+                    <span className={styles.rawMetricLabel}>total opens</span>
+                  </span>
+                </span>
+                <span className={styles.rawMetric} data-tone="click">
+                  <span className={styles.rawMetricIcon} aria-hidden="true">
+                    <ClickIcon />
+                  </span>
+                  <span className={styles.rawMetricText}>
+                    <span className={styles.rawMetricValue}>{stats.totalClicks}</span>
+                    <span className={styles.rawMetricLabel}>total clicks</span>
+                  </span>
+                </span>
+              </div>
             </div>
           </Card>
 
@@ -146,6 +197,12 @@ export default async function CampaignDashboardPage({
           <Card
             title="Latest updates"
             description="Real recipient activity, most recent first. Test sends never appear here."
+            actions={
+              <span className={styles.liveBadge}>
+                <span className={styles.liveDot} aria-hidden="true" />
+                Live
+              </span>
+            }
           >
             <ActivityFeed campaignId={campaign.id} />
           </Card>
@@ -164,20 +221,15 @@ export default async function CampaignDashboardPage({
 
           <Card
             title="Campaign settings"
-            description="Copy or download the tracked HTML for the manual-paste-into-Carbonio fallback."
+            description="Rename it, replace the tracked HTML, or copy/download it for the manual-paste-into-Carbonio fallback."
           >
+            <CampaignEditor id={campaign.id} name={campaign.name} subject={campaign.subject} />
+            <div className={styles.divider} />
             <CampaignControls
               id={campaign.id}
               name={campaign.name}
               processedHtml={campaign.processedHtml}
             />
-          </Card>
-
-          <Card
-            title="Edit campaign"
-            description="Rename the campaign, or replace its HTML and regenerate every link token."
-          >
-            <CampaignEditor id={campaign.id} name={campaign.name} subject={campaign.subject} />
           </Card>
 
           <Card
@@ -190,8 +242,9 @@ export default async function CampaignDashboardPage({
           <p className={styles.note}>
             Opens are approximate — image blocking hides them and Apple Mail
             Privacy pre-loads pixels, inflating the count. Per-link clicks are
-            the reliable signal. Numbers here are raw totals: no unique/dedup
-            counting.
+            the reliable signal. &ldquo;Unique&rdquo; above counts each
+            recipient once regardless of how many times or how many links
+            they opened/clicked; the raw totals below it don&rsquo;t dedup at all.
           </p>
         </div>
       </main>

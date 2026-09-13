@@ -187,7 +187,7 @@ export function RecipientDetailModal({
             </div>
 
             {detail.sentAt && (
-              <p className={styles.modalSectionTitle}>Sent at {formatTime(detail.sentAt)}</p>
+              <p className={styles.modalMeta}>Sent at {formatTime(detail.sentAt)}</p>
             )}
             {detail.error && (
               <p className={[styles.statusError, styles.modalSection].join(" ")} role="alert">
@@ -195,11 +195,20 @@ export function RecipientDetailModal({
               </p>
             )}
 
+            <div className={styles.modalStats}>
+              <div className={styles.modalStatItem}>
+                <span className={styles.modalStatValue}>{detail.opens.length}</span>
+                <span className={styles.modalStatLabel}>Opens</span>
+              </div>
+              <div className={styles.modalStatItem}>
+                <span className={styles.modalStatValue}>{detail.clicks.length}</span>
+                <span className={styles.modalStatLabel}>Clicks</span>
+              </div>
+            </div>
+
             <div className={styles.modalSection}>
-              <p className={styles.modalSectionTitle}>
-                Opened {detail.opens.length}×
-              </p>
-              {detail.opens.length > 0 && (
+              <p className={styles.modalSectionTitle}>Open history</p>
+              {detail.opens.length > 0 ? (
                 <ul className={styles.eventList}>
                   {detail.opens.map((o, i) => (
                     <li key={i} className={styles.eventRow}>
@@ -208,14 +217,14 @@ export function RecipientDetailModal({
                     </li>
                   ))}
                 </ul>
+              ) : (
+                <p className={styles.modalEmpty}>No opens yet.</p>
               )}
             </div>
 
             <div className={styles.modalSection}>
-              <p className={styles.modalSectionTitle}>
-                Clicked {detail.clicks.length}×
-              </p>
-              {detail.clicks.length > 0 && (
+              <p className={styles.modalSectionTitle}>Click history</p>
+              {detail.clicks.length > 0 ? (
                 <ul className={styles.eventList}>
                   {detail.clicks.map((c, i) => (
                     <li key={i} className={styles.eventRow}>
@@ -232,6 +241,8 @@ export function RecipientDetailModal({
                     </li>
                   ))}
                 </ul>
+              ) : (
+                <p className={styles.modalEmpty}>No clicks yet.</p>
               )}
             </div>
 

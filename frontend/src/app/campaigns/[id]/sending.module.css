@@ -18,6 +18,11 @@
   background:var(--color-surface);
   border:1px solid var(--color-border);
   border-radius:var(--radius-md);
+  transition:border-color .15s ease,box-shadow .15s ease;
+}
+.healthItem:hover{
+  border-color:var(--color-border-strong);
+  box-shadow:var(--shadow-sm);
 }
 
 .healthValue{
@@ -133,24 +138,76 @@
   flex-wrap:wrap;
 }
 
-.rowActions{
+.iconButton{
+  appearance:none;
   display:inline-flex;
-  gap:var(--space-3);
+  align-items:center;
+  justify-content:center;
+  width:30px;
+  height:30px;
+  background:var(--color-bg);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-sm);
+  color:var(--color-text-secondary);
+  cursor:pointer;
+  transition:background-color .15s ease,border-color .15s ease,color .15s ease;
+}
+.iconButton:hover:not(:disabled){
+  background:var(--color-surface);
+  border-color:var(--color-border-strong);
+  color:var(--color-primary);
+}
+.iconButton:disabled{
+  color:var(--color-text-muted);
+  cursor:not-allowed;
+  opacity:.5;
 }
 
-.removeLink{
-  appearance:none;
-  background:transparent;
-  border:0;
-  color:var(--color-text-muted);
-  cursor:pointer;
-  font-size:var(--text-xs);
-  text-decoration:underline;
-  padding:0;
+.iconButtonDanger:hover:not(:disabled){
+  border-color:var(--color-error);
+  color:var(--color-error);
 }
-.removeLink:hover{color:var(--color-error);}
 
 .statusFailed{color:var(--color-error);}
+
+.countBadge{
+  display:inline-block;
+  padding:2px 8px;
+  background:var(--color-surface);
+  border-radius:999px;
+  color:var(--color-text-primary);
+  font-family:var(--font-mono);
+  font-size:var(--text-xs);
+  font-weight:var(--weight-medium);
+  font-variant-numeric:tabular-nums;
+}
+
+.countEmpty{color:var(--color-text-muted);}
+
+.clickedLinksCell{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.clickedLinkTag{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 8px;
+  background:var(--color-surface);
+  border:1px solid var(--color-border);
+  border-radius:999px;
+  color:var(--color-text-secondary);
+  font-size:var(--text-xs);
+  white-space:nowrap;
+}
+
+.clickedLinkCount{
+  color:var(--color-text-muted);
+  font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;
+}
 
 .errorNote{
   color:var(--color-text-muted);
@@ -201,60 +258,84 @@
 
 /* --- activity feed --- */
 
+.feedLog{
+  max-height:320px;
+  overflow-y:auto;
+  background:var(--color-surface);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+}
+
 .feed{
   margin:0;
-  padding:0;
+  padding:var(--space-2);
   list-style:none;
   display:flex;
   flex-direction:column;
-  gap:var(--space-2);
+  gap:1px;
 }
 
 .feedItem{
   display:flex;
   align-items:center;
   gap:var(--space-2);
-  font-size:var(--text-sm);
+  padding:6px var(--space-2);
+  border-radius:var(--radius-sm);
+  font-family:var(--font-mono);
+  font-size:var(--text-xs);
   color:var(--color-text-secondary);
 }
+.feedItem:hover{background:var(--color-bg);}
 
-.feedDot{
-  width:8px;
-  height:8px;
-  border-radius:50%;
+.feedTimestamp{
   flex:none;
-  background:var(--color-text-muted);
+  color:var(--color-text-muted);
+  font-variant-numeric:tabular-nums;
 }
-.feedDot[data-type="open"]{background:var(--color-accent-light);}
-.feedDot[data-type="click"]{background:var(--color-primary);}
+
+.feedTag{
+  flex:none;
+  padding:1px 6px;
+  border-radius:var(--radius-sm);
+  font-size:10px;
+  font-weight:var(--weight-semibold);
+  letter-spacing:.04em;
+}
+.feedTag[data-type="open"]{background:#FBEAEE;color:var(--color-accent-dark);}
+.feedTag[data-type="click"]{background:#FBE7EA;color:var(--color-primary);}
+
+.feedText{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--color-text-primary);
+  font-family:var(--font-sans);
+  font-size:var(--text-sm);
+}
 
 .feedTime{
   margin-left:auto;
-  color:var(--color-text-muted);
-  font-size:var(--text-xs);
   flex:none;
+  color:var(--color-text-muted);
+  font-family:var(--font-sans);
+  font-size:var(--text-xs);
 }
 
 .emptyFeed{
   margin:0;
+  padding:var(--space-4) var(--space-3);
   color:var(--color-text-muted);
+  font-family:var(--font-sans);
   font-size:var(--text-sm);
+  text-align:center;
 }
 
-.emailLink{
-  appearance:none;
-  background:transparent;
-  border:0;
-  padding:0;
-  color:var(--color-primary);
-  cursor:pointer;
-  font-family:var(--font-mono);
-  font-size:inherit;
-  text-align:left;
-  text-decoration:underline;
-  text-underline-offset:2px;
+.emailText{
+  color:var(--color-text-primary);
+  font-weight:var(--weight-medium);
 }
-.emailLink:hover{color:var(--color-primary-hover);}
 
 /* --- recipient detail modal --- */
 
@@ -346,6 +427,49 @@
 .statusBadge[data-status="pending"]{background:var(--color-surface);color:var(--color-text-muted);}
 .statusBadge[data-status="sending"]{background:var(--color-surface);color:var(--color-text-secondary);}
 
+.modalMeta{
+  margin:0 0 var(--space-4);
+  color:var(--color-text-muted);
+  font-size:var(--text-sm);
+}
+
+.modalStats{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:var(--space-3);
+  padding:var(--space-3);
+  background:var(--color-surface);
+  border-radius:var(--radius-md);
+}
+
+.modalStatItem{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  align-items:center;
+  padding:var(--space-2) 0;
+}
+
+.modalStatItem + .modalStatItem{
+  border-left:1px solid var(--color-border);
+}
+
+.modalStatValue{
+  color:var(--color-text-primary);
+  font-family:var(--font-mono);
+  font-size:var(--text-xl);
+  font-weight:var(--weight-semibold);
+  font-variant-numeric:tabular-nums;
+  line-height:1.1;
+}
+
+.modalStatLabel{
+  color:var(--color-text-muted);
+  font-size:var(--text-xs);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
 .modalSection{margin-top:var(--space-4);}
 
 .modalSectionTitle{
@@ -353,6 +477,12 @@
   color:var(--color-text-primary);
   font-size:var(--text-sm);
   font-weight:var(--weight-medium);
+}
+
+.modalEmpty{
+  margin:0;
+  color:var(--color-text-muted);
+  font-size:var(--text-sm);
 }
 
 .eventList{

@@ -43,6 +43,34 @@ const statusLabel: Record<RecipientRow["status"], string> = {
   failed: "Failed",
 };
 
+function ResendIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function RemoveIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 7h16M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2m2 0v13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7h10ZM10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
   const [recipients, setRecipients] = useState<RecipientRow[]>([]);
   const [summary, setSummary] = useState<Summary>({
@@ -211,15 +239,7 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
     {
       key: "email",
       header: "Email",
-      cell: (r) => (
-        <button
-          type="button"
-          className={styles.emailLink}
-          onClick={() => setOpenRecipientId(r.id)}
-        >
-          {r.email}
-        </button>
-      ),
+      cell: (r) => <span className={styles.emailText}>{r.email}</span>,
       mono: true,
     },
     {
@@ -237,45 +257,75 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
     {
       key: "opens",
       header: "Opened",
-      cell: (r) => (r.openCount > 0 ? `${r.openCount}×` : "—"),
+      cell: (r) =>
+        r.openCount > 0 ? (
+          <span className={styles.countBadge}>{r.openCount}×</span>
+        ) : (
+          <span className={styles.countEmpty}>—</span>
+        ),
       align: "right",
-      mono: true,
+      width: "100px",
     },
     {
       key: "clicks",
       header: "Clicked",
       cell: (r) =>
-        r.clickedLinks.length === 0
-          ? "—"
-          : r.clickedLinks
-              .map((l) => `${l.label ?? "Untitled link"} (${l.count})`)
-              .join(", "),
-    },
-    {
-      key: "actions",
-      header: "",
-      cell: (r) =>
-        r.status === "sending" ? null : (
-          <span className={styles.rowActions}>
-            <button
-              type="button"
-              className={styles.removeLink}
-              onClick={() => sendOne(r.id)}
-              disabled={sendingIds.has(r.id)}
-            >
-              {sendingIds.has(r.id) ? "Sending…" : r.status === "pending" ? "Send" : "Resend"}
-            </button>
-            <button
-              type="button"
-              className={styles.removeLink}
-              onClick={() => removeRecipient(r.id)}
-              disabled={sendingIds.has(r.id)}
-            >
-              Remove
-            </button>
+        r.clickedLinks.length === 0 ? (
+          <span className={styles.countEmpty}>—</span>
+        ) : (
+          <span className={styles.clickedLinksCell}>
+            {r.clickedLinks.map((l, i) => (
+              <span key={i} className={styles.clickedLinkTag}>
+                {l.label ?? "Untitled link"} <span className={styles.clickedLinkCount}>×{l.count}</span>
+              </span>
+            ))}
           </span>
         ),
-      width: "130px",
+      width: "260px",
+    },
+    {
+      key: "resend",
+      header: "Resend",
+      cell: (r) =>
+        r.status === "sending" ? null : (
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={(e) => {
+              e.stopPropagation();
+              sendOne(r.id);
+            }}
+            disabled={sendingIds.has(r.id)}
+            aria-label={r.status === "pending" ? `Send to ${r.email}` : `Resend to ${r.email}`}
+            title={sendingIds.has(r.id) ? "Sending…" : r.status === "pending" ? "Send" : "Resend"}
+          >
+            <ResendIcon />
+          </button>
+        ),
+      align: "right",
+      width: "80px",
+    },
+    {
+      key: "remove",
+      header: "Remove",
+      cell: (r) =>
+        r.status === "sending" ? null : (
+          <button
+            type="button"
+            className={[styles.iconButton, styles.iconButtonDanger].join(" ")}
+            onClick={(e) => {
+              e.stopPropagation();
+              removeRecipient(r.id);
+            }}
+            disabled={sendingIds.has(r.id)}
+            aria-label={`Remove ${r.email}`}
+            title="Remove"
+          >
+            <RemoveIcon />
+          </button>
+        ),
+      align: "right",
+      width: "80px",
     },
   ];
 
@@ -321,6 +371,7 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
         columns={columns}
         rows={realRows}
         rowKey={(r) => r.id}
+        onRowClick={(r) => setOpenRecipientId(r.id)}
         empty={loaded ? "No recipients yet — add some above." : "Loading…"}
       />
 
