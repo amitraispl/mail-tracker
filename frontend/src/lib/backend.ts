@@ -36,6 +36,7 @@ export interface CampaignDetail {
   sentCount: number;
   createdAt: string;
   processedHtml: string | null;
+  archived: boolean;
   stats: CampaignStats;
   perLink: PerLinkStats[];
 }
@@ -43,15 +44,29 @@ export interface CampaignDetail {
 export interface CampaignListItem {
   id: string;
   name: string;
+  subject: string | null;
   openToken: string;
   sentCount: number;
   createdAt: string;
   processedHtml: string | null;
+  archived: boolean;
   _count: { opens: number; clicks: number; links: number };
 }
 
-export async function loadCampaignList(): Promise<CampaignListItem[]> {
-  const res = await serverFetch("/api/campaigns");
+export interface LoadCampaignListOptions {
+  search?: string;
+  archived?: boolean;
+}
+
+export async function loadCampaignList(
+  options: LoadCampaignListOptions = {},
+): Promise<CampaignListItem[]> {
+  const params = new URLSearchParams();
+  if (options.search) params.set("search", options.search);
+  if (options.archived) params.set("archived", "true");
+  const query = params.toString();
+
+  const res = await serverFetch(`/api/campaigns${query ? `?${query}` : ""}`);
   if (!res.ok) return [];
   return res.json();
 }

@@ -298,6 +298,29 @@
   flex-wrap:wrap;
 }
 
+/* --- archive control (reversible — no danger styling) --- */
+
+.archiveZone{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--space-4);
+  flex-wrap:wrap;
+}
+
+.archiveTitle{
+  margin:0;
+  color:var(--color-text-primary);
+  font-weight:var(--weight-medium);
+}
+
+.archiveNote{
+  margin:var(--space-1) 0 0;
+  color:var(--color-text-muted);
+  font-size:var(--text-sm);
+  max-width:52ch;
+}
+
 /* --- danger zone --- */
 
 .dangerZone{

@@ -363,7 +363,14 @@ export default function NewCampaignPage() {
                       placeholder="<html>…</html>"
                       value={html}
                       onChange={(e) => setHtml(e.target.value)}
-                      hint="Paste the full HTML body of the email — markup, not plain text."
+                      hint={
+                        <>
+                          Paste the full HTML body of the email — markup, not plain text.
+                          Use <code>{"{{name}}"}</code> anywhere to personalize per recipient —
+                          it fills in from the name column when you upload a recipient
+                          spreadsheet later.
+                        </>
+                      }
                     />
                   )}
                 </div>

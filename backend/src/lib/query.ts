@@ -16,6 +16,7 @@ export interface CampaignDetail {
   sentCount: number;
   createdAt: Date;
   processedHtml: string | null;
+  archived: boolean;
   stats: CampaignStats;
   perLink: PerLinkStats[];
 }
@@ -76,6 +77,7 @@ export async function loadCampaign(id: string, userId: string): Promise<Campaign
     sentCount: campaign.sentCount,
     createdAt: campaign.createdAt,
     processedHtml: campaign.processedHtml,
+    archived: campaign.archived,
     stats,
     perLink,
   };

@@ -11,6 +11,7 @@ import {
   type Column,
 } from "@/components";
 import { ActivityFeed } from "./ActivityFeed";
+import { ArchiveCampaign } from "./ArchiveCampaign";
 import { CampaignControls } from "./CampaignControls";
 import { CampaignEditor } from "./CampaignEditor";
 import { DeleteCampaign } from "./DeleteCampaign";
@@ -121,7 +122,11 @@ export default async function CampaignDashboardPage({
   return (
     <>
       <PageHeader
-        eyebrow={<Eyebrow muted>Campaign</Eyebrow>}
+        eyebrow={
+          <Eyebrow muted>
+            {campaign.archived ? "Campaign · Archived" : "Campaign"}
+          </Eyebrow>
+        }
         title={campaign.name}
         subtitle={
           <span className={styles.meta}>
@@ -230,6 +235,8 @@ export default async function CampaignDashboardPage({
               name={campaign.name}
               processedHtml={campaign.processedHtml}
             />
+            <div className={styles.divider} />
+            <ArchiveCampaign id={campaign.id} name={campaign.name} archived={campaign.archived} />
           </Card>
 
           <Card

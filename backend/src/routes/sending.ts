@@ -1,7 +1,14 @@
 import { Router } from "express";
+import multer from "multer";
 import { prisma } from "../db.js";
 import { sendMail } from "../lib/mailer.js";
 import { renderForRecipient } from "../lib/personalize.js";
+import { parseRecipientsWorkbook } from "../lib/recipientsFile.js";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 export const sendingRouter = Router();
 
@@ -62,21 +69,87 @@ sendingRouter.post("/:id/recipients", async (req, res) => {
     return;
   }
 
-  const body = (req.body ?? {}) as { emails?: unknown };
-  const raw = typeof body.emails === "string" ? body.emails : "";
-  const { emails, invalid } = parseEmailLines(raw);
+  const body = (req.body ?? {}) as { emails?: unknown; rows?: unknown };
 
-  if (emails.length === 0) {
+  let entries: { email: string; name?: string }[];
+  let invalid: string[];
+
+  // `rows` (email+optional name, from EmailTagInput's paste parsing) takes
+  // priority over the legacy plain-text `emails` field when both are sent.
+  if (Array.isArray(body.rows)) {
+    entries = [];
+    invalid = [];
+    const seen = new Set<string>();
+    for (const raw of body.rows) {
+      const email =
+        raw && typeof raw === "object" && typeof (raw as { email?: unknown }).email === "string"
+          ? (raw as { email: string }).email.trim().toLowerCase()
+          : "";
+      const name =
+        raw && typeof raw === "object" && typeof (raw as { name?: unknown }).name === "string"
+          ? (raw as { name: string }).name.trim()
+          : "";
+      if (!EMAIL_RE.test(email)) {
+        invalid.push(email || "(blank)");
+        continue;
+      }
+      if (seen.has(email)) continue;
+      seen.add(email);
+      entries.push({ email, name: name || undefined });
+    }
+  } else {
+    const raw = typeof body.emails === "string" ? body.emails : "";
+    const { emails, invalid: badEmails } = parseEmailLines(raw);
+    entries = emails.map((email) => ({ email }));
+    invalid = badEmails;
+  }
+
+  if (entries.length === 0) {
     res.status(400).json({ error: "No valid email addresses found.", invalid });
     return;
   }
 
   const { count } = await prisma.recipient.createMany({
-    data: emails.map((email) => ({ campaignId: id, email })),
+    data: entries.map((e) => ({ campaignId: id, email: e.email, name: e.name ?? null })),
     skipDuplicates: true,
   });
 
-  res.json({ ok: true, created: count, skipped: emails.length - count, invalid });
+  res.json({ ok: true, created: count, skipped: entries.length - count, invalid });
+});
+
+/** Bulk-add from an uploaded .xlsx: two columns (email, name) — see
+ *  lib/recipientsFile.ts for header detection and row validation. Unlike
+ *  the plain-paste route above, every accepted row carries a `name`, which
+ *  is what makes `{{name}}` resolve for these recipients at send time. */
+sendingRouter.post("/:id/recipients/upload", upload.single("file"), async (req, res) => {
+  const { id } = req.params;
+  const campaign = await requireCampaign(id, req.userId!);
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ error: "No file uploaded." });
+    return;
+  }
+  if (!req.file.originalname.toLowerCase().endsWith(".xlsx")) {
+    res.status(400).json({ error: "Only .xlsx files are supported." });
+    return;
+  }
+
+  const { rows, invalid } = await parseRecipientsWorkbook(req.file.buffer);
+  if (rows.length === 0) {
+    res.status(400).json({ error: "No valid rows found in the file.", invalid });
+    return;
+  }
+
+  const { count } = await prisma.recipient.createMany({
+    data: rows.map((r) => ({ campaignId: id, email: r.email, name: r.name })),
+    skipDuplicates: true,
+  });
+
+  res.json({ ok: true, created: count, skipped: rows.length - count, invalid });
 });
 
 sendingRouter.get("/:id/recipients", async (req, res) => {
@@ -110,6 +183,7 @@ sendingRouter.get("/:id/recipients", async (req, res) => {
     return {
       id: r.id,
       email: r.email,
+      name: r.name,
       status: r.status,
       error: r.error,
       isTest: r.isTest,
@@ -161,6 +235,7 @@ sendingRouter.get("/:id/recipients/:recipientId", async (req, res) => {
   res.json({
     id: recipient.id,
     email: recipient.email,
+    name: recipient.name,
     status: recipient.status,
     error: recipient.error,
     isTest: recipient.isTest,
@@ -172,6 +247,34 @@ sendingRouter.get("/:id/recipients/:recipientId", async (req, res) => {
       linkUrl: c.link.originalUrl,
     })),
   });
+});
+
+sendingRouter.patch("/:id/recipients/:recipientId", async (req, res) => {
+  const { id, recipientId } = req.params;
+  const campaign = await requireCampaign(id, req.userId!);
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
+  }
+
+  const body = (req.body ?? {}) as { name?: unknown };
+  if (typeof body.name !== "string") {
+    res.status(400).json({ error: "`name` is required." });
+    return;
+  }
+  // Empty string clears the name back to no {{name}} substitution for this
+  // recipient, same as one added via the plain-paste (no-name) flow.
+  const name = body.name.trim() || null;
+
+  const { count } = await prisma.recipient.updateMany({
+    where: { id: recipientId, campaignId: id },
+    data: { name },
+  });
+  if (count === 0) {
+    res.status(404).json({ error: "Recipient not found." });
+    return;
+  }
+  res.json({ ok: true, name });
 });
 
 sendingRouter.delete("/:id/recipients/:recipientId", async (req, res) => {
@@ -228,7 +331,7 @@ sendingRouter.post("/:id/send-test", async (req, res) => {
   });
 
   try {
-    const html = renderForRecipient(campaign.processedHtml, recipient.id);
+    const html = renderForRecipient(campaign.processedHtml, recipient);
     await sendMail(user.email, `[Test] ${subjectFor(campaign)}`, html);
     await prisma.recipient.update({
       where: { id: recipient.id },
@@ -252,14 +355,14 @@ async function sendToOne(
   campaignId: string,
   html: string,
   subject: string,
-  recipient: { id: string; email: string },
+  recipient: { id: string; email: string; name?: string | null },
 ): Promise<boolean> {
   await prisma.recipient.update({
     where: { id: recipient.id },
     data: { status: "sending" },
   });
   try {
-    const personalized = renderForRecipient(html, recipient.id);
+    const personalized = renderForRecipient(html, recipient);
     await sendMail(recipient.email, subject, personalized);
     await prisma.$transaction([
       prisma.recipient.update({
@@ -302,7 +405,7 @@ async function markFirstSentIfUnset(campaignId: string): Promise<void> {
 async function runSendLoop(campaignId: string, html: string, subject: string) {
   const pending = await prisma.recipient.findMany({
     where: { campaignId, status: "pending", isTest: false },
-    select: { id: true, email: true },
+    select: { id: true, email: true, name: true },
   });
 
   for (const recipient of pending) {
@@ -329,7 +432,7 @@ sendingRouter.post("/:id/recipients/:recipientId/send", async (req, res) => {
 
   const recipient = await prisma.recipient.findFirst({
     where: { id: recipientId, campaignId: id, isTest: false },
-    select: { id: true, email: true },
+    select: { id: true, email: true, name: true },
   });
   if (!recipient) {
     res.status(404).json({ error: "Recipient not found." });

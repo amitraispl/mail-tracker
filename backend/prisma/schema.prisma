@@ -19,6 +19,9 @@ model Campaign {
   createdAt     DateTime  @default(now())
   processedHtml String?   @db.LongText
   firstSentAt   DateTime?
+  /// Soft-hide from the default campaign list — never deletes data. See
+  /// routes/campaigns.ts GET "/" `archived` filter.
+  archived      Boolean   @default(false)
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   links      Link[]
@@ -36,6 +39,10 @@ model Recipient {
   id         String    @id @default(cuid())
   campaignId String
   email      String
+  /// Populated by the .xlsx recipient upload (email + name columns) — drives
+  /// {{name}} substitution at send time (lib/personalize.ts). Null for
+  /// recipients added via the plain email-paste flow, which has no name.
+  name       String?
   status     String    @default("pending") // pending | sending | sent | failed
   error      String?   @db.Text
   /// Send-test-to-self row. Excluded from every analytics query by default —

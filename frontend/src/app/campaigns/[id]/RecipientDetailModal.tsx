@@ -17,6 +17,7 @@ interface ClickEventItem {
 interface RecipientDetail {
   id: string;
   email: string;
+  name: string | null;
   status: "pending" | "sending" | "sent" | "failed";
   error: string | null;
   sentAt: string | null;
@@ -73,6 +74,8 @@ export function RecipientDetailModal({
   const [sending, setSending] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   async function loadDetail() {
     const res = await apiFetch(`/api/campaigns/${campaignId}/recipients/${recipientId}`);
@@ -80,7 +83,29 @@ export function RecipientDetailModal({
       setError(`Could not load recipient details (${res.status}).`);
       return;
     }
-    setDetail(await res.json());
+    const body = (await res.json()) as RecipientDetail;
+    setDetail(body);
+    setNameDraft(body.name ?? "");
+  }
+
+  async function saveName() {
+    if (!detail) return;
+    setActionError(null);
+    setSavingName(true);
+    try {
+      const res = await apiFetch(`/api/campaigns/${campaignId}/recipients/${recipientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nameDraft }),
+      });
+      if (!res.ok) throw new Error(`Could not save the name (${res.status}).`);
+      await loadDetail();
+      onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not save the name.");
+    } finally {
+      setSavingName(false);
+    }
   }
 
   useEffect(() => {
@@ -184,6 +209,28 @@ export function RecipientDetailModal({
               >
                 ×
               </button>
+            </div>
+
+            <div className={styles.modalSection}>
+              <p className={styles.modalSectionTitle}>Name</p>
+              <div className={styles.modalNameRow}>
+                <input
+                  type="text"
+                  className={styles.modalNameInput}
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  placeholder="No name — {{name}} renders blank"
+                  aria-label="Recipient name"
+                />
+                <button
+                  type="button"
+                  className={styles.modalNameSave}
+                  onClick={saveName}
+                  disabled={savingName || nameDraft.trim() === (detail.name ?? "")}
+                >
+                  {savingName ? "Saving…" : "Save"}
+                </button>
+              </div>
             </div>
 
             {detail.sentAt && (

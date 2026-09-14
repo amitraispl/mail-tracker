@@ -65,8 +65,22 @@ processRouter.post("/process", async (req, res) => {
 export const campaignsRouter = Router();
 
 campaignsRouter.get("/", async (req, res) => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const archived = req.query.archived === "true";
+
   const campaigns = await prisma.campaign.findMany({
-    where: { userId: req.userId! },
+    where: {
+      userId: req.userId!,
+      archived,
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search } },
+              { subject: { contains: search } },
+            ],
+          }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { opens: true, clicks: true, links: true } } },
   });
@@ -85,7 +99,12 @@ campaignsRouter.get("/:id", async (req, res) => {
 
 campaignsRouter.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const body = (req.body ?? {}) as { name?: unknown; subject?: unknown; html?: unknown };
+  const body = (req.body ?? {}) as {
+    name?: unknown;
+    subject?: unknown;
+    html?: unknown;
+    archived?: unknown;
+  };
 
   const campaign = await prisma.campaign.findFirst({
     where: { id, userId: req.userId! },
@@ -111,6 +130,10 @@ campaignsRouter.patch("/:id", async (req, res) => {
   // see routes/sending.ts subjectFor().
   if (typeof body.subject === "string") {
     data.subject = body.subject.trim() || null;
+  }
+
+  if (typeof body.archived === "boolean") {
+    data.archived = body.archived;
   }
 
   let linkCount: number | null = null;

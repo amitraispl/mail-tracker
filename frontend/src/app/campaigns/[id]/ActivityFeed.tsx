@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { CAMPAIGN_REFRESH_EVENT } from "./refreshEvent";
 import styles from "./sending.module.css";
 
 interface ActivityItem {
@@ -37,26 +38,24 @@ export function ActivityFeed({ campaignId }: ActivityFeedProps) {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
+  const load = useCallback(async () => {
+    const res = await apiFetch(`/api/campaigns/${campaignId}/activity?limit=20`);
+    if (!res.ok) return;
+    const body = (await res.json()) as { feed: ActivityItem[] };
+    setItems(body.feed);
+    setLoaded(true);
+  }, [campaignId]);
+
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      const res = await apiFetch(`/api/campaigns/${campaignId}/activity?limit=20`);
-      if (!res.ok || cancelled) return;
-      const body = (await res.json()) as { feed: ActivityItem[] };
-      if (!cancelled) {
-        setItems(body.feed);
-        setLoaded(true);
-      }
-    }
-
     load();
     const interval = setInterval(load, 5 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [campaignId]);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  useEffect(() => {
+    window.addEventListener(CAMPAIGN_REFRESH_EVENT, load);
+    return () => window.removeEventListener(CAMPAIGN_REFRESH_EVENT, load);
+  }, [load]);
 
   if (loaded && items.length === 0) {
     return (

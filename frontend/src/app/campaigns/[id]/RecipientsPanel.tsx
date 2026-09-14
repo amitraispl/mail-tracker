@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, DataTable, type Column } from "@/components";
 import { apiFetch } from "@/lib/api";
-import { EmailTagInput } from "./EmailTagInput";
+import { EmailTagInput, type EmailEntry } from "./EmailTagInput";
 import { RecipientDetailModal } from "./RecipientDetailModal";
+import { RecipientExcelUpload } from "./RecipientExcelUpload";
+import { CAMPAIGN_REFRESH_EVENT } from "./refreshEvent";
 import styles from "./sending.module.css";
 
 interface ClickedLink {
@@ -15,6 +17,7 @@ interface ClickedLink {
 interface RecipientRow {
   id: string;
   email: string;
+  name: string | null;
   status: "pending" | "sending" | "sent" | "failed";
   error: string | null;
   isTest: boolean;
@@ -80,13 +83,16 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
     failed: 0,
   });
   const [loaded, setLoaded] = useState(false);
-  const [emailTags, setEmailTags] = useState<string[]>([]);
+  const [emailTags, setEmailTags] = useState<EmailEntry[]>([]);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelInputKey, setExcelInputKey] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [testSending, setTestSending] = useState(false);
   const [confirmingSend, setConfirmingSend] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [openRecipientId, setOpenRecipientId] = useState<string | null>(null);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -102,6 +108,11 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
+    window.addEventListener(CAMPAIGN_REFRESH_EVENT, load);
+    return () => window.removeEventListener(CAMPAIGN_REFRESH_EVENT, load);
   }, [load]);
 
   // Poll while anything is actively sending, so the status table and
@@ -121,20 +132,34 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
     };
   }, [summary.pending, summary.sending, load]);
 
-  async function upload() {
+  // One button covers both input methods: a chosen spreadsheet takes
+  // priority over pasted/typed tags (picking a file and leaving stale tags
+  // in the box is the more likely accident than the reverse).
+  async function addToList() {
     setError(null);
     setStatus(null);
-    if (emailTags.length === 0) {
-      setError("Add at least one email address.");
+    setWarnings([]);
+    if (!excelFile && emailTags.length === 0) {
+      setError("Add at least one email address, or choose a spreadsheet.");
       return;
     }
     setUploading(true);
     try {
-      const res = await apiFetch(`/api/campaigns/${campaignId}/recipients`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails: emailTags.join("\n") }),
-      });
+      const res = excelFile
+        ? await apiFetch(`/api/campaigns/${campaignId}/recipients/upload`, {
+            method: "POST",
+            body: (() => {
+              const formData = new FormData();
+              formData.append("file", excelFile);
+              return formData;
+            })(),
+          })
+        : await apiFetch(`/api/campaigns/${campaignId}/recipients`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rows: emailTags }),
+          });
+
       const body = (await res.json().catch(() => null)) as {
         created?: number;
         skipped?: number;
@@ -142,13 +167,20 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
         error?: string;
       } | null;
       if (!res.ok) {
+        if (body?.invalid?.length) setWarnings(body.invalid);
         throw new Error(body?.error ?? `Could not add recipients (${res.status}).`);
       }
       const parts = [`${body?.created ?? 0} added`];
       if (body?.skipped) parts.push(`${body.skipped} already on the list`);
-      if (body?.invalid?.length) parts.push(`${body.invalid.length} skipped (invalid)`);
+      if (!excelFile && body?.invalid?.length) parts.push(`${body.invalid.length} skipped (invalid)`);
       setStatus(parts.join(", ") + ".");
-      setEmailTags([]);
+      if (body?.invalid?.length) setWarnings(body.invalid);
+      if (excelFile) {
+        setExcelFile(null);
+        setExcelInputKey((k) => k + 1);
+      } else {
+        setEmailTags([]);
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add recipients.");
@@ -236,6 +268,16 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
   const testRow = recipients.find((r) => r.isTest) ?? null;
 
   const columns: Column<RecipientRow>[] = [
+    {
+      key: "name",
+      header: "Name",
+      cell: (r) =>
+        r.name ? (
+          <span>{r.name}</span>
+        ) : (
+          <span className={styles.countEmpty}>—</span>
+        ),
+    },
     {
       key: "email",
       header: "Email",
@@ -356,15 +398,36 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
         <EmailTagInput
           id="recipient-emails"
           label="Add recipients"
-          hint="Paste a list from Excel/Sheets, or type and press Enter/comma after each one. Each address becomes its own tag — remove one with × before adding."
+          hint="Paste a list from Excel/Sheets, a name+email pair per line (Jane Doe <jane@x.com>, or two tab/comma-separated columns), or type and press Enter/comma after each one."
           tags={emailTags}
           onChange={setEmailTags}
         />
+        <RecipientExcelUpload
+          fileInputKey={excelInputKey}
+          disabled={uploading}
+          onFileChange={setExcelFile}
+        />
         <div className={styles.actions}>
-          <Button variant="secondary" onClick={upload} disabled={uploading || emailTags.length === 0}>
-            {uploading ? "Adding…" : `Add ${emailTags.length || ""} to list`.trim()}
+          <Button
+            variant="secondary"
+            onClick={addToList}
+            disabled={uploading || (!excelFile && emailTags.length === 0)}
+          >
+            {uploading
+              ? "Adding…"
+              : excelFile
+                ? `Add "${excelFile.name}" to list`
+                : `Add ${emailTags.length || ""} to list`.trim()}
           </Button>
         </div>
+        {warnings.length > 0 && (
+          <ul className={styles.warningList}>
+            {warnings.slice(0, 10).map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+            {warnings.length > 10 && <li>…and {warnings.length - 10} more.</li>}
+          </ul>
+        )}
       </div>
 
       <DataTable

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { loadCampaignList } from "@/lib/backend";
 import {
   Card,
@@ -7,6 +8,8 @@ import {
   PageHeader,
   buttonClassName,
 } from "@/components";
+import { CampaignRowArchiveToggle } from "./CampaignRowArchiveToggle";
+import { CampaignsToolbar } from "./CampaignsToolbar";
 import styles from "./page.module.css";
 import { SignOutButton } from "./SignOutButton";
 
@@ -28,8 +31,15 @@ function Tag({ label, value }: { label: string; value: number }) {
   );
 }
 
-export default async function HomePage() {
-  const campaigns = await loadCampaignList();
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; view?: string }>;
+}) {
+  const { q, view } = await searchParams;
+  const archived = view === "archived";
+  const search = q?.trim() || undefined;
+  const campaigns = await loadCampaignList({ search, archived });
 
   const totals = campaigns.reduce(
     (acc, c) => {
@@ -61,14 +71,32 @@ export default async function HomePage() {
       />
 
       <main className="container section">
+        <Suspense fallback={null}>
+          <CampaignsToolbar />
+        </Suspense>
+
         {campaigns.length === 0 ? (
           <EmptyState
-            title="No campaigns yet"
-            description="Create a campaign to inject the tracking pixel, rewrite its links, and download the tracked HTML for Carbonio."
+            title={
+              search
+                ? "No matches"
+                : archived
+                  ? "No archived campaigns"
+                  : "No campaigns yet"
+            }
+            description={
+              search
+                ? `Nothing in ${archived ? "the archive" : "your campaigns"} matches "${search}".`
+                : archived
+                  ? "Campaigns you archive stay here, fully intact, until you restore them."
+                  : "Create a campaign to inject the tracking pixel, rewrite its links, and download the tracked HTML for Carbonio."
+            }
             action={
-              <Link href="/campaigns/new" className={buttonClassName("primary")}>
-                New campaign
-              </Link>
+              !search && !archived ? (
+                <Link href="/campaigns/new" className={buttonClassName("primary")}>
+                  New campaign
+                </Link>
+              ) : undefined
             }
           />
         ) : (
@@ -91,18 +119,20 @@ export default async function HomePage() {
             </p>
             <div className={styles.list}>
               {campaigns.map((campaign) => (
-                <Link
-                  key={campaign.id}
-                  href={`/campaigns/${campaign.id}`}
-                  className={styles.rowLink}
-                >
-                  <Card className={styles.row}>
+                <Card key={campaign.id} className={styles.row}>
+                  <Link href={`/campaigns/${campaign.id}`} className={styles.rowLink}>
                     <div className={styles.rowMain}>
                       <h2 className={styles.name}>{campaign.name}</h2>
                       <p className={styles.meta}>
                         {dateFormatter.format(new Date(campaign.createdAt))} &middot;{" "}
                         {campaign._count.links}{" "}
                         {campaign._count.links === 1 ? "link" : "links"}
+                        {campaign.subject && (
+                          <>
+                            {" "}
+                            &middot; <span className={styles.subject}>{campaign.subject}</span>
+                          </>
+                        )}
                       </p>
                     </div>
                     <div className={styles.tags}>
@@ -110,8 +140,9 @@ export default async function HomePage() {
                       <Tag label="clicks" value={campaign._count.clicks} />
                       <Tag label="sent" value={campaign.sentCount} />
                     </div>
-                  </Card>
-                </Link>
+                  </Link>
+                  <CampaignRowArchiveToggle id={campaign.id} archived={campaign.archived} />
+                </Card>
               ))}
             </div>
           </>
