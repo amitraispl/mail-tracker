@@ -18,6 +18,7 @@ export interface PerLinkStats {
   label: string | null;
   originalUrl: string;
   totalClicks: number;
+  uniqueClicks: number;
 }
 
 export interface CampaignStats {
@@ -35,6 +36,7 @@ export interface CampaignDetail {
   openToken: string;
   sentCount: number;
   createdAt: string;
+  firstSentAt: string | null;
   processedHtml: string | null;
   archived: boolean;
   stats: CampaignStats;

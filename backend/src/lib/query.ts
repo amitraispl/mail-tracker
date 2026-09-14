@@ -6,6 +6,7 @@ export interface PerLinkStats {
   label: string | null;
   originalUrl: string;
   totalClicks: number;
+  uniqueClicks: number;
 }
 
 export interface CampaignDetail {
@@ -15,6 +16,7 @@ export interface CampaignDetail {
   openToken: string;
   sentCount: number;
   createdAt: Date;
+  firstSentAt: Date | null;
   processedHtml: string | null;
   archived: boolean;
   stats: CampaignStats;
@@ -36,11 +38,26 @@ export async function loadCampaign(id: string, userId: string): Promise<Campaign
 
   if (!campaign) return null;
 
+  // Per-link unique-recipient count, mirroring the campaign-level dedup
+  // below but bucketed per link — fetched once, bucketed in JS rather than
+  // a separate query per link.
+  const linkClicks = await prisma.clickEvent.findMany({
+    where: { campaignId: id, recipientId: { not: null }, recipient: { isTest: false } },
+    select: { linkId: true, recipientId: true },
+  });
+  const uniqueClickersByLink = new Map<string, Set<string>>();
+  for (const click of linkClicks) {
+    const set = uniqueClickersByLink.get(click.linkId) ?? new Set<string>();
+    set.add(click.recipientId!);
+    uniqueClickersByLink.set(click.linkId, set);
+  }
+
   const perLink: PerLinkStats[] = campaign.links.map((link) => ({
     id: link.id,
     label: link.label,
     originalUrl: link.originalUrl,
     totalClicks: link._count.clicks,
+    uniqueClicks: uniqueClickersByLink.get(link.id)?.size ?? 0,
   }));
 
   // Per-recipient headcount, not a rate: how many distinct email addresses
@@ -76,6 +93,7 @@ export async function loadCampaign(id: string, userId: string): Promise<Campaign
     openToken: campaign.openToken,
     sentCount: campaign.sentCount,
     createdAt: campaign.createdAt,
+    firstSentAt: campaign.firstSentAt,
     processedHtml: campaign.processedHtml,
     archived: campaign.archived,
     stats,

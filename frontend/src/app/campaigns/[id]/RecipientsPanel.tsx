@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, DataTable, type Column } from "@/components";
 import { apiFetch } from "@/lib/api";
 import { EmailTagInput, type EmailEntry } from "./EmailTagInput";
 import { RecipientDetailModal } from "./RecipientDetailModal";
 import { RecipientExcelUpload } from "./RecipientExcelUpload";
 import { CAMPAIGN_REFRESH_EVENT } from "./refreshEvent";
+import dashboardStyles from "./dashboard.module.css";
 import styles from "./sending.module.css";
 
 interface ClickedLink {
@@ -37,6 +38,7 @@ interface Summary {
 
 export interface RecipientsPanelProps {
   campaignId: string;
+  campaignName: string;
 }
 
 const statusLabel: Record<RecipientRow["status"], string> = {
@@ -60,6 +62,26 @@ function ResendIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const STATUS_FILTERS = ["all", "pending", "sending", "sent", "failed"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
+
+const statusFilterLabel: Record<StatusFilter, string> = {
+  all: "All",
+  pending: "Pending",
+  sending: "Sending",
+  sent: "Sent",
+  failed: "Failed",
+};
+
 function RemoveIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -74,7 +96,7 @@ function RemoveIcon() {
   );
 }
 
-export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
+export function RecipientsPanel({ campaignId, campaignName }: RecipientsPanelProps) {
   const [recipients, setRecipients] = useState<RecipientRow[]>([]);
   const [summary, setSummary] = useState<Summary>({
     pending: 0,
@@ -95,6 +117,9 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [openRecipientId, setOpenRecipientId] = useState<string | null>(null);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [exporting, setExporting] = useState<"recipients" | "activity" | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -264,8 +289,45 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
     }
   }
 
+  // Downloads must go through this app's own proxied /api path (not a plain
+  // <a href> to the backend) so the request carries the session cookie —
+  // same reason apiFetch exists — hence fetch + blob + a throwaway <a>.
+  async function downloadExport(kind: "recipients" | "activity") {
+    setError(null);
+    setExporting(kind);
+    try {
+      const res = await apiFetch(`/api/campaigns/${campaignId}/export/${kind}`);
+      if (!res.ok) throw new Error(`Could not export ${kind} (${res.status}).`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeName = campaignName.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "campaign";
+      a.href = url;
+      a.download = `${safeName}-${kind}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Could not export ${kind}.`);
+    } finally {
+      setExporting(null);
+    }
+  }
+
   const realRows = recipients.filter((r) => !r.isTest);
   const testRow = recipients.find((r) => r.isTest) ?? null;
+
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return realRows.filter((r) => {
+      if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (!q) return true;
+      return r.email.toLowerCase().includes(q) || (r.name?.toLowerCase().includes(q) ?? false);
+    });
+  }, [realRows, searchQuery, statusFilter]);
+
+  const isFiltering = searchQuery.trim() !== "" || statusFilter !== "all";
 
   const columns: Column<RecipientRow>[] = [
     {
@@ -430,15 +492,72 @@ export function RecipientsPanel({ campaignId }: RecipientsPanelProps) {
         )}
       </div>
 
+      {realRows.length > 0 && (
+        <div className={styles.filterBar}>
+          <div className={styles.filterSearchWrap}>
+            <span className={styles.filterSearchIcon} aria-hidden="true">
+              <SearchIcon />
+            </span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name or email…"
+              aria-label="Search recipients by name or email"
+              className={styles.filterSearchInput}
+            />
+          </div>
+          <div className={dashboardStyles.switch} role="tablist" aria-label="Filter by status">
+            {STATUS_FILTERS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === s}
+                className={[
+                  dashboardStyles.switchButton,
+                  statusFilter === s ? dashboardStyles.switchButtonActive : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => setStatusFilter(s)}
+              >
+                {statusFilterLabel[s]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <DataTable
         columns={columns}
-        rows={realRows}
+        rows={filteredRows}
         rowKey={(r) => r.id}
         onRowClick={(r) => setOpenRecipientId(r.id)}
-        empty={loaded ? "No recipients yet — add some above." : "Loading…"}
+        empty={
+          !loaded
+            ? "Loading…"
+            : isFiltering
+              ? "No recipients match this search/filter."
+              : "No recipients yet — add some above."
+        }
       />
 
       <div className={styles.actions}>
+        <Button
+          variant="secondary"
+          onClick={() => downloadExport("recipients")}
+          disabled={exporting !== null || realRows.length === 0}
+        >
+          {exporting === "recipients" ? "Exporting…" : "Export recipients (CSV)"}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => downloadExport("activity")}
+          disabled={exporting !== null}
+        >
+          {exporting === "activity" ? "Exporting…" : "Export activity (CSV)"}
+        </Button>
         <Button variant="secondary" onClick={sendTest} disabled={testSending}>
           {testSending ? "Sending test…" : "Send test to myself"}
         </Button>

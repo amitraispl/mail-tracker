@@ -15,6 +15,8 @@ import { ArchiveCampaign } from "./ArchiveCampaign";
 import { CampaignControls } from "./CampaignControls";
 import { CampaignEditor } from "./CampaignEditor";
 import { DeleteCampaign } from "./DeleteCampaign";
+import { EngagementLeaderboard } from "./EngagementLeaderboard";
+import { EngagementTimeline } from "./EngagementTimeline";
 import { RecipientsPanel } from "./RecipientsPanel";
 import { RefreshButton } from "./RefreshButton";
 import styles from "./dashboard.module.css";
@@ -97,6 +99,7 @@ function linkColumns(maxClicks: number): Column<PerLinkStats>[] {
               style={{ width: maxClicks > 0 ? `${(link.totalClicks / maxClicks) * 100}%` : "0%" }}
             />
           </span>
+          <span className={styles.uniqueClicksNote}>{link.uniqueClicks} people</span>
         </span>
       ),
       align: "right",
@@ -131,6 +134,11 @@ export default async function CampaignDashboardPage({
         subtitle={
           <span className={styles.meta}>
             <span>Created {dateFormatter.format(new Date(campaign.createdAt))}</span>
+            {campaign.firstSentAt ? (
+              <span>First sent {dateFormatter.format(new Date(campaign.firstSentAt))}</span>
+            ) : (
+              <span className={styles.draftBadge}>Draft — not sent yet</span>
+            )}
             <span>
               Open token <span className={styles.token}>{campaign.openToken}</span>
             </span>
@@ -196,7 +204,7 @@ export default async function CampaignDashboardPage({
             title="Send via platform"
             description="Sends real email over SMTP, personalized per recipient — every open and click is attributed to who did it."
           >
-            <RecipientsPanel campaignId={campaign.id} />
+            <RecipientsPanel campaignId={campaign.id} campaignName={campaign.name} />
           </Card>
 
           <Card
@@ -210,6 +218,20 @@ export default async function CampaignDashboardPage({
             }
           >
             <ActivityFeed campaignId={campaign.id} />
+          </Card>
+
+          <Card
+            title="Opens & clicks, last 30 days"
+            description="Raw daily counts, not smoothed — a dashed line marks the day this campaign was first sent."
+          >
+            <EngagementTimeline campaignId={campaign.id} />
+          </Card>
+
+          <Card
+            title="Most engaged"
+            description="Top 5 recipients by opens + clicks combined. Test sends excluded."
+          >
+            <EngagementLeaderboard campaignId={campaign.id} />
           </Card>
 
           <Card

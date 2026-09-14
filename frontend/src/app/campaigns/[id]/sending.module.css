@@ -44,6 +44,56 @@
   gap:var(--space-3);
 }
 
+/* --- recipient search/status filter bar --- */
+
+.filterBar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:var(--space-3);
+  flex-wrap:wrap;
+}
+
+.filterSearchWrap{
+  position:relative;
+  flex:1 1 260px;
+  max-width:360px;
+}
+
+.filterSearchIcon{
+  position:absolute;
+  top:50%;
+  left:12px;
+  transform:translateY(-50%);
+  color:var(--color-text-muted);
+  display:flex;
+  pointer-events:none;
+}
+
+.filterSearchInput{
+  width:100%;
+  padding:8px 10px 8px 34px;
+  background:var(--color-bg);
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  color:var(--color-text-primary);
+  font-family:var(--font-sans);
+  font-size:var(--text-sm);
+  transition:border-color .15s ease;
+}
+.filterSearchInput::placeholder{color:var(--color-text-muted);}
+.filterSearchInput:hover{border-color:var(--color-border-strong);}
+.filterSearchInput:focus{
+  border-color:var(--color-primary);
+  outline:2px solid var(--color-primary);
+  outline-offset:1px;
+}
+
+@media (max-width:640px){
+  .filterBar{flex-direction:column;align-items:stretch;}
+  .filterSearchWrap{max-width:none;}
+}
+
 /* --- email tag input --- */
 
 .tagField{

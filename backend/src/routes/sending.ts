@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { prisma } from "../db.js";
+import { toCsv } from "../lib/csv.js";
 import { sendMail } from "../lib/mailer.js";
 import { renderForRecipient } from "../lib/personalize.js";
 import { parseRecipientsWorkbook } from "../lib/recipientsFile.js";
@@ -20,15 +21,11 @@ interface OwnedCampaign {
   processedHtml: string | null;
 }
 
-// TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts's sendMail(). Remove together.
 async function requireCampaign(id: string, userId: string): Promise<OwnedCampaign | null> {
-  console.log("Fetching campaign");
-  const campaign = await prisma.campaign.findFirst({
+  return prisma.campaign.findFirst({
     where: { id, userId },
     select: { id: true, name: true, subject: true, openToken: true, processedHtml: true },
   });
-  console.log("Campaign fetched");
-  return campaign;
 }
 
 /** Falls back to the campaign name when no subject override is set. */
@@ -298,7 +295,6 @@ sendingRouter.delete("/:id/recipients/:recipientId", async (req, res) => {
 /* ---- sending ---- */
 
 sendingRouter.post("/:id/send-test", async (req, res) => {
-  console.log("Request received"); // TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts
   const { id } = req.params;
   const campaign = await requireCampaign(id, req.userId!);
   if (!campaign) {
@@ -418,7 +414,6 @@ async function runSendLoop(campaignId: string, html: string, subject: string) {
  *  bulk `/send` below, for "just resend/send this one" without touching the
  *  rest of the list. */
 sendingRouter.post("/:id/recipients/:recipientId/send", async (req, res) => {
-  console.log("Request received"); // TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts
   const { id, recipientId } = req.params;
   const campaign = await requireCampaign(id, req.userId!);
   if (!campaign) {
@@ -449,7 +444,6 @@ sendingRouter.post("/:id/recipients/:recipientId/send", async (req, res) => {
 });
 
 sendingRouter.post("/:id/send", async (req, res) => {
-  console.log("Request received"); // TEMP DIAGNOSTIC LOGGING — see lib/mailer.ts
   const { id } = req.params;
   const campaign = await requireCampaign(id, req.userId!);
   if (!campaign) {
@@ -533,4 +527,178 @@ sendingRouter.get("/:id/activity", async (req, res) => {
     .slice(0, limit);
 
   res.json({ feed });
+});
+
+/* ---- opens/clicks timeline ---- */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function dayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/** Rolling last-30-days, UTC day buckets, zero-filled so the frontend never
+ *  has to guess about gaps. Bucketed in JS (fetch once, group in memory)
+ *  rather than a DB-specific date-trunc — same style as `clicksByLink` above. */
+sendingRouter.get("/:id/timeline", async (req, res) => {
+  const { id } = req.params;
+  const campaign = await prisma.campaign.findFirst({
+    where: { id, userId: req.userId! },
+    select: { firstSentAt: true },
+  });
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
+  }
+
+  const since = new Date(Date.now() - 29 * DAY_MS);
+  since.setUTCHours(0, 0, 0, 0);
+
+  const [opens, clicks] = await Promise.all([
+    prisma.openEvent.findMany({
+      where: { campaignId: id, createdAt: { gte: since }, recipient: { isTest: false } },
+      select: { createdAt: true },
+    }),
+    prisma.clickEvent.findMany({
+      where: { campaignId: id, createdAt: { gte: since }, recipient: { isTest: false } },
+      select: { createdAt: true },
+    }),
+  ]);
+
+  const opensByDay = new Map<string, number>();
+  for (const o of opens) opensByDay.set(dayKey(o.createdAt), (opensByDay.get(dayKey(o.createdAt)) ?? 0) + 1);
+  const clicksByDay = new Map<string, number>();
+  for (const c of clicks) clicksByDay.set(dayKey(c.createdAt), (clicksByDay.get(dayKey(c.createdAt)) ?? 0) + 1);
+
+  const days: { date: string; opens: number; clicks: number }[] = [];
+  for (let t = since.getTime(); t <= Date.now(); t += DAY_MS) {
+    const date = dayKey(new Date(t));
+    days.push({ date, opens: opensByDay.get(date) ?? 0, clicks: clicksByDay.get(date) ?? 0 });
+  }
+
+  res.json({ days, firstSentAt: campaign.firstSentAt });
+});
+
+/* ---- CSV exports ---- */
+
+/** Campaign names are free text (can contain quotes/CRLF) but land straight
+ *  in a response header — strip everything but a safe filename charset
+ *  before it's ever interpolated into `Content-Disposition`. */
+function safeFilenamePart(name: string): string {
+  return name.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "campaign";
+}
+
+function csvResponse(res: import("express").Response, filenameBase: string, suffix: string, rows: string[][]) {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${safeFilenamePart(filenameBase)}-${suffix}.csv"`,
+  );
+  res.send(toCsv(rows));
+}
+
+/** Own query rather than sharing code with `GET /:id/recipients` above —
+ *  same row shape, kept independent so this doesn't require touching that
+ *  handler. */
+sendingRouter.get("/:id/export/recipients", async (req, res) => {
+  const { id } = req.params;
+  const campaign = await requireCampaign(id, req.userId!);
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
+  }
+
+  const recipients = await prisma.recipient.findMany({
+    where: { campaignId: id, isTest: false },
+    orderBy: { createdAt: "asc" },
+    include: {
+      _count: { select: { opens: true, clicks: true } },
+      opens: { orderBy: { createdAt: "asc" }, select: { createdAt: true }, take: 1 },
+      clicks: { select: { link: { select: { label: true } } } },
+    },
+  });
+
+  const rows: string[][] = [
+    ["Email", "Name", "Status", "Sent at", "Error", "Opens", "First open", "Clicks", "Clicked links"],
+  ];
+  for (const r of recipients) {
+    const clicksByLink = new Map<string, number>();
+    for (const c of r.clicks) {
+      const label = c.link.label ?? "Untitled link";
+      clicksByLink.set(label, (clicksByLink.get(label) ?? 0) + 1);
+    }
+    const clickedLinks = Array.from(clicksByLink.entries())
+      .map(([label, count]) => `${label}×${count}`)
+      .join("; ");
+
+    rows.push([
+      r.email,
+      r.name ?? "",
+      r.status,
+      r.sentAt?.toISOString() ?? "",
+      r.error ?? "",
+      String(r._count.opens),
+      r.opens[0]?.createdAt.toISOString() ?? "",
+      String(r._count.clicks),
+      clickedLinks,
+    ]);
+  }
+
+  csvResponse(res, campaign.name, "recipients", rows);
+});
+
+/** Uncapped activity log export — the JSON `/:id/activity` feed caps at
+ *  `limit` (default 20), this returns every open/click. */
+sendingRouter.get("/:id/export/activity", async (req, res) => {
+  const { id } = req.params;
+  const campaign = await requireCampaign(id, req.userId!);
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
+  }
+
+  const [opens, clicks] = await Promise.all([
+    prisma.openEvent.findMany({
+      where: { campaignId: id, recipient: { isTest: false } },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true, recipient: { select: { email: true, name: true } } },
+    }),
+    prisma.clickEvent.findMany({
+      where: { campaignId: id, recipient: { isTest: false } },
+      orderBy: { createdAt: "asc" },
+      select: {
+        createdAt: true,
+        recipient: { select: { email: true, name: true } },
+        link: { select: { label: true } },
+      },
+    }),
+  ]);
+
+  const rows: string[][] = [["Type", "Email", "Name", "Link", "Time"]];
+  const events = [
+    ...opens
+      .filter((o) => o.recipient)
+      .map((o) => ({
+        type: "open",
+        email: o.recipient!.email,
+        name: o.recipient!.name ?? "",
+        linkLabel: "",
+        createdAt: o.createdAt,
+      })),
+    ...clicks
+      .filter((c) => c.recipient)
+      .map((c) => ({
+        type: "click",
+        email: c.recipient!.email,
+        name: c.recipient!.name ?? "",
+        linkLabel: c.link.label ?? "Untitled link",
+        createdAt: c.createdAt,
+      })),
+  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  for (const e of events) {
+    rows.push([e.type, e.email, e.name, e.linkLabel, e.createdAt.toISOString()]);
+  }
+
+  csvResponse(res, campaign.name, "activity", rows);
 });
