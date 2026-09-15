@@ -378,6 +378,57 @@ Using an external managed MySQL host instead of the bundled container? Delete
 the `mysql` service from `docker-compose.yml` and the four `MARIADB_*` vars
 from `backend/.env`, and just point `DATABASE_URL` at that host directly.
 
+### Reverse proxy & TLS — required before this is actually internet-facing
+
+Neither container terminates TLS — `docker-compose.yml` publishes both
+`backend` and `frontend` on **`127.0.0.1` only** (loopback), on purpose,
+specifically so a fresh clone can never accidentally end up serving plain
+HTTP straight to the internet. That's a deliberate default, not a bug to
+work around: **you must put a reverse proxy in front** (Caddy, nginx,
+Traefik — anything that can terminate TLS and forward to a local port) for
+a real deployment. This isn't optional polish — `NODE_ENV=production` marks
+both auth cookies `Secure`, meaning the browser refuses to store them over
+plain HTTP at all, so login will appear to silently do nothing until real
+HTTPS is in front of the backend's origin.
+
+Minimal shape with Caddy (auto-TLS via Let's Encrypt, one file, no manual
+cert handling):
+
+```caddyfile
+# /etc/caddy/Caddyfile — replace with your real domains
+app.illumiasolutions.com {
+    reverse_proxy 127.0.0.1:3000
+}
+api.illumiasolutions.com {
+    reverse_proxy 127.0.0.1:4000
+}
+```
+
+Whatever proxy you use: it needs to forward `/api/track/open/*` and
+`/api/track/click/*` on the backend's domain **without** stripping them or
+adding auth — those are the public endpoints recipients' mail clients hit
+directly (see [Post-deploy checklist](#post-deploy-checklist) item 7). Once
+the proxy is up, set `PUBLIC_TRACK_BASE_URL`/`FRONTEND_ORIGIN`/
+`NEXT_PUBLIC_API_URL` in the two `.env` files to the real HTTPS domains, not
+`localhost`, before restarting the stack.
+
+### Day-2 ops cheat sheet
+
+```bash
+docker compose logs -f [backend|frontend|mysql]   # tail logs (omit the service name for all three)
+docker compose ps                                 # container + healthcheck status at a glance
+docker compose up -d --build                      # redeploy after pulling new code
+docker exec mail-tracker-mysql mysqldump -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE" > backup-$(date +%F).sql
+                                                    # ↑ back up the bundled DB — mysql_data is a
+                                                    #   Docker volume, not a plain host folder, so
+                                                    #   it isn't covered by an ordinary file backup
+```
+
+Restoring that dump: `docker exec -i mail-tracker-mysql mysql -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE" < backup-2026-01-01.sql`.
+On an external managed MySQL host instead of the bundled container, use that
+provider's own backup/restore tooling (e.g. Aiven's automated backups)
+instead of the commands above.
+
 ## Creating a user account
 
 There is **no self-registration and no in-app user-management UI** — this
