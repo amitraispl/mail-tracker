@@ -7,6 +7,7 @@ import express, {
   type Response,
 } from "express";
 
+import { prisma } from "./db.js";
 import { authenticate } from "./middleware/auth.js";
 import { authRouter } from "./routes/auth.js";
 import { campaignsRouter, processRouter } from "./routes/campaigns.js";
@@ -33,7 +34,25 @@ export function createApp() {
   app.use(express.json({ limit: "2mb" })); // tracked HTML bodies can be sizeable
   app.use(cookieParser());
 
-  app.get("/healthz", (_req, res) => res.json({ ok: true }));
+  // Process liveness only — doesn't imply the DB is reachable. Every
+  // tracking hit (open/click) needs a DB write to actually count, so a
+  // "healthy" process with a dead DB connection would silently log nothing
+  // while this endpoint kept reporting fine. `?db=1` adds a real DB
+  // round-trip so that failure mode is distinguishable from the outside
+  // instead of looking identical to "everything's fine."
+  app.get("/healthz", async (req, res) => {
+    if (req.query.db !== "1") {
+      res.json({ ok: true });
+      return;
+    }
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ ok: true, db: true });
+    } catch (error) {
+      console.error("[healthz] db check failed", error);
+      res.status(503).json({ ok: false, db: false });
+    }
+  });
 
   // Public — recipients' mail clients hit these unauthenticated.
   app.use("/api/track", trackRouter);
