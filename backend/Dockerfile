@@ -23,8 +23,11 @@ COPY src ./src
 
 RUN npm run build
 
-# Drop devDependencies (typescript, tsx, the prisma CLI, @types/*) now that the
-# client is generated and dist/ is compiled — keeps the runtime copy lean.
+# Drop devDependencies (typescript, tsx, @types/*) now that the client is
+# generated and dist/ is compiled — keeps the runtime copy lean. `prisma` (the
+# CLI, not just @prisma/client) is a regular dependency on purpose, not dev —
+# it has to survive this prune so `docker exec <container> npx prisma db push`
+# works against the running container without pulling in tsx/typescript too.
 RUN npm prune --omit=dev
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────

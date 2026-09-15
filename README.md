@@ -1,18 +1,32 @@
 # Mail Tracker
 
-Self-hosted, internal tool for **Illumia Solutions**. Tracks **total opens** and
-**per-link click counts** for HTML emails sent manually through Carbonio webmail.
-There is no send integration — this app never sends mail itself. The flow is:
+Self-hosted, internal, **multi-user** tool for **Illumia Solutions**. Tracks
+**opens** and **per-link click counts** (raw totals, plus a per-recipient
+"how many distinct people" headcount — see "Why no rates?" below) for HTML
+email campaigns. Every account only ever sees its own campaigns — there's no
+shared/global campaign list. Two ways to actually get a campaign out the
+door:
 
 1. Paste or upload your campaign HTML into the app.
-2. The backend injects a 1×1 tracking pixel and rewrites every `<a href>` to go
-   through a redirect endpoint first.
-3. You download the tracked HTML and paste it as the message source in
-   Carbonio's HTML compose mode, then send it yourself.
-4. As recipients open the mail / click links, hits land on the backend and get
-   logged.
-5. The dashboard shows raw totals — no unique/dedup counting, no rate or
-   percentage math anywhere (see "Why no rates?" below).
+2. The backend injects a 1×1 tracking pixel and rewrites every `<a href>` to
+   go through a redirect endpoint first.
+3. Either:
+   - **Manual send**: download the tracked HTML and paste it as the message
+     source in Carbonio's HTML compose mode, then send it yourself — no
+     per-recipient data leaves this app. **or**
+   - **Platform send**: add recipients (paste addresses, or upload an
+     `.xlsx` with email+name columns), then send from inside the app. The
+     backend emails each recipient individually over one shared SMTP mailbox,
+     personalizing `{{name}}`/`{{email}}` placeholders and tagging every
+     tracking URL with that recipient's id — this is what lets opens/clicks
+     be attributed to a specific person instead of only the campaign as a
+     whole.
+4. As recipients open the mail / click links, hits land on the backend and
+   get logged.
+5. The dashboard shows raw totals plus unique-recipient headcounts — no rate
+   or percentage math anywhere (see "Why no rates?" below). Campaigns can be
+   archived (soft-hidden from the default list, not deleted) once you're done
+   with them.
 
 ---
 
@@ -25,6 +39,7 @@ There is no send integration — this app never sends mail itself. The flow is:
 - [Required environment variables](#required-environment-variables)
 - [Cookie domain — read this before deploying](#cookie-domain--read-this-before-deploying)
 - [Running locally](#running-locally)
+- [Running with Docker (self-host)](#running-with-docker-self-host)
 - [Creating a user account](#creating-a-user-account)
 - [Disabling / removing a user account](#disabling--removing-a-user-account)
 - [API reference](#api-reference)
@@ -59,12 +74,15 @@ mail-tracker/
                          │  /api/track/click/*  │   mail clients)
                          └─────────┬────────────┘
                                    │
-                          Prisma / MySQL
+                                   ├──▶ Prisma / MySQL (campaigns, recipients,
+                                   │     opens, clicks — scoped per user)
                                    │
+                                   └──▶ SMTP (nodemailer, one shared mailbox) ──▶ recipient inboxes
+                                         only for campaigns using platform send
                          ┌─────────┴────────────┐
      browser (you) ─────▶│  frontend  (:3000)   │  dashboard, campaign
-        logs in via      │  Next.js App Router   │  create/edit/delete,
-        /login           └─────────┬────────────┘  profile
+        logs in via      │  Next.js App Router   │  create/edit/archive,
+        /login           └─────────┬────────────┘  recipients, profile
                                    │
                     relative fetch("/api/...", { credentials: "include" })
                                    │
@@ -72,7 +90,7 @@ mail-tracker/
                     (Set-Cookie lands as first-party on the frontend's own
                      domain — see "Cookie domain" below)
                                    ▼
-                         backend's /api/auth/*, /api/campaigns/*, /api/process
+              backend's /api/auth/*, /api/campaigns/*, /api/process, /healthz
 ```
 
 The frontend has **no database access** — every read/write goes through the
@@ -83,7 +101,9 @@ fetch relative `/api/...` paths on the frontend's own domain, which
 `next.config.ts` proxies to the backend server-side (see
 [Cookie domain](#cookie-domain--read-this-before-deploying) for why). The
 root directory has **no `package.json`** — always run commands from inside
-`frontend/` or `backend/`.
+`frontend/` or `backend/` (the root `docker-compose.yml` is the one exception
+that operates from the repo root — see
+[Running with Docker](#running-with-docker-self-host)).
 
 ## Tech stack
 
@@ -106,10 +126,21 @@ root directory has **no `package.json`** — always run commands from inside
 - `cheerio` — parses/rewrites campaign HTML
 - `nanoid` — generates link/open tokens
 - `cookie-parser`, `cors`
+- `nodemailer` — platform send: one pooled SMTP connection (env-configured),
+  shared by every user's campaigns, not per-user credentials
+- `multer` (in-memory storage only, no disk writes) — `.xlsx` recipient
+  upload
+- `exceljs` — reads the uploaded `.xlsx` recipient file; CSV export
+  (recipients / activity) is hand-rolled, no library
 
 **Auth model**
 - Named accounts (email + bcrypt-hashed password) — **not** a shared app
-  password.
+  password. **Multi-user**: every `Campaign` belongs to exactly one `User`
+  (`Campaign.userId`), and every campaign route scopes its query to
+  `req.userId` — one account can never see, edit, or send another account's
+  campaigns. There's still no in-app way to create additional accounts (see
+  [Creating a user account](#creating-a-user-account)), but once two accounts
+  exist, their campaign lists are fully isolated from each other.
 - **Access token**: short-lived JWT (HS256, 15 min), httpOnly cookie
   `mt_access`, path `/`. Stateless — verified on every protected request, no
   DB hit.
@@ -124,7 +155,9 @@ root directory has **no `package.json`** — always run commands from inside
 ```
 mail-tracker/
 ├── README.md                     ← you are here
+├── docker-compose.yml            ← optional self-host stack (backend+frontend+MariaDB)
 ├── backend/
+│   ├── Dockerfile
 │   ├── prisma/
 │   │   └── schema.prisma         ← single source of truth for the DB shape
 │   ├── src/
@@ -134,7 +167,9 @@ mail-tracker/
 │   │   ├── db.ts                 ← Prisma client singleton
 │   │   ├── routes/
 │   │   │   ├── auth.ts           ← login / refresh / logout / me / patch-me
-│   │   │   ├── campaigns.ts      ← process (create), list, get, patch, delete, sent
+│   │   │   ├── campaigns.ts      ← process (create), list (search/archived), get, patch, delete
+│   │   │   ├── sending.ts        ← recipients (paste/.xlsx upload/rename/delete), send/send-test/
+│   │   │   │                       send-one, activity feed, 30-day timeline, CSV exports
 │   │   │   └── track.ts          ← public pixel + click-redirect endpoints
 │   │   ├── middleware/
 │   │   │   └── auth.ts           ← `authenticate` — verifies mt_access, sets req.userId
@@ -143,7 +178,11 @@ mail-tracker/
 │   │   │   ├── cookies.ts        ← cookie names, set/clear helpers
 │   │   │   ├── passwords.ts      ← bcrypt hash/verify
 │   │   │   ├── transform.ts      ← HTML parsing: inject pixel, rewrite links
-│   │   │   ├── stats.ts          ← raw-totals aggregation (no rate math)
+│   │   │   ├── personalize.ts    ← per-recipient {{name}}/{{email}} substitution + `&r=` tagging
+│   │   │   ├── mailer.ts         ← nodemailer pooled SMTP transport (platform send)
+│   │   │   ├── recipientsFile.ts ← parses the uploaded .xlsx recipient list
+│   │   │   ├── csv.ts            ← CSV encoding for the export routes
+│   │   │   ├── stats.ts          ← raw-totals + unique-recipient headcount aggregation (no rate math)
 │   │   │   └── query.ts          ← Prisma read helpers for campaign detail/list
 │   │   └── scripts/
 │   │       └── create-user.ts    ← CLI: create or reset a user's password
@@ -151,19 +190,22 @@ mail-tracker/
 │   ├── .env.example
 │   └── package.json
 └── frontend/
+    ├── Dockerfile
     ├── src/
     │   ├── middleware.ts         ← route guard + silent token refresh
     │   ├── lib/
     │   │   ├── api.ts            ← client-side fetch wrapper (auto refresh+retry on 401)
     │   │   └── backend.ts        ← server-side fetch wrapper (forwards cookies for SSR)
-    │   ├── components/           ← shared UI primitives (Card, Button, Field, PageHeader…)
+    │   ├── components/           ← shared UI primitives (Card, Button, Field, PageHeader, DataTable…)
     │   └── app/
     │       ├── login/            ← /login
-    │       ├── profile/          ← /profile (change email/password)
+    │       ├── profile/          ← /profile (change email/password, backend health check)
     │       ├── campaigns/
     │       │   ├── new/          ← /campaigns/new (create)
-    │       │   └── [id]/         ← /campaigns/:id (detail, edit, delete)
-    │       ├── page.tsx          ← / (dashboard)
+    │       │   └── [id]/         ← /campaigns/:id — detail/edit, recipients panel
+    │       │                        (paste or .xlsx upload), send controls, archive toggle,
+    │       │                        engagement leaderboard + 30-day timeline, activity feed
+    │       ├── page.tsx          ← / (dashboard — campaign list, search, archived filter)
     │       └── SignOutButton.tsx
     ├── .env.example
     └── package.json
@@ -175,6 +217,9 @@ mail-tracker/
 - A reachable MySQL 8+ (or MariaDB) database (Aiven, RDS, self-hosted —
   anything speaking the MySQL protocol)
 - Two free local ports for dev: `3000` (frontend) and `4000` (backend)
+- An SMTP mailbox/relay — only if you want **platform send** (in-app sending
+  to a recipient list); the manual paste-into-Carbonio flow needs none of
+  this
 
 ## Required environment variables
 
@@ -194,6 +239,8 @@ README and the corresponding `CLAUDE.md`.**
 | `COOKIE_DOMAIN` | `""` (dev) / `.illumiasolutions.com` (prod) | See [Cookie domain](#cookie-domain--read-this-before-deploying). |
 | `PORT` | `4000` | |
 | `NODE_ENV` | `development` / `production` | Controls the cookie `Secure` flag — cookies won't set correctly over plain HTTP if this is `production`. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_USE_TLS` | `webmail.illumiasolutions.com` / `587` / … / `true` | Platform send only — one shared mailbox emails every user's campaigns, not per-user credentials. `SMTP_USE_TLS=true` = STARTTLS (587, the default); `false` = implicit TLS (465). Omit all of these if you only ever use the manual paste-into-Carbonio flow — platform send just fails with a clear error until they're set, nothing else breaks. |
+| `EMAIL_FROM_NAME` / `EMAIL_FROM_ADDRESS` | `Illumia Solutions` / `sales@illumiasolutions.com` | `From:` header for platform-sent mail. `EMAIL_FROM_ADDRESS` is required if you use platform send at all. |
 
 ### `frontend/.env`
 
@@ -295,6 +342,42 @@ any campaign card to see its stats, edit its name/HTML, or delete it, and
 > stop the dev server, delete `frontend/.next`, restart `npm run dev`. See
 > [Troubleshooting](#troubleshooting).
 
+## Running with Docker (self-host)
+
+The root `docker-compose.yml` is a self-host alternative to the
+Vercel+persistent-host split described below — it runs backend, frontend,
+**and** a bundled MariaDB, all on one box, each service in a hardened
+container (non-root, read-only filesystem, dropped Linux capabilities,
+network-segmented so the frontend has no route to the database at all).
+Both services still deploy independently in production if you'd rather not
+use this — it's purely an option.
+
+```bash
+cp backend/.env.example backend/.env      # fill in real values; if using the
+                                           # bundled mysql service, set
+                                           # DATABASE_URL to
+                                           # mysql://<MARIADB_USER>:<MARIADB_PASSWORD>@mysql:3306/<MARIADB_DATABASE>
+cp frontend/.env.example frontend/.env    # NEXT_PUBLIC_API_URL=http://backend:4000 (the
+                                           # compose service name, not localhost — see the
+                                           # comment above the frontend service in
+                                           # docker-compose.yml)
+docker compose up -d --build
+```
+
+First run against a fresh database volume, create the tables and your login
+(containers must already be up):
+
+```bash
+docker exec -it mail-tracker-backend npx prisma db push
+docker exec -it mail-tracker-backend node dist/scripts/create-user.js --email you@example.com --password "a strong password"
+```
+
+`docker compose down` stops everything but keeps the `mysql_data` volume
+(your data survives); `docker compose down -v` also deletes it — destructive.
+Using an external managed MySQL host instead of the bundled container? Delete
+the `mysql` service from `docker-compose.yml` and the four `MARIADB_*` vars
+from `backend/.env`, and just point `DATABASE_URL` at that host directly.
+
 ## Creating a user account
 
 There is **no self-registration and no in-app user-management UI** — this
@@ -353,7 +436,13 @@ for the full two-terminal setup) — visit the frontend, you'll land on
 ## Disabling / removing a user account
 
 There's no `is_active` flag in this schema (unlike a system with a soft-
-disable column) — accounts are simply present or absent. To remove access:
+disable column) — accounts are simply present or absent. **Deleting a `User`
+cascades to every `Campaign` that user owns** (and from there, transitively,
+every `Link`/`Recipient`/`OpenEvent`/`ClickEvent` under those campaigns) — it
+is not just a login removal, it's a full data wipe for that account. Make
+sure that's actually what you want before deleting a row here; if not, reset
+their password instead (see the note below) so they simply can't log in
+anymore. To remove access (and everything they own) permanently:
 
 ```bash
 cd backend
@@ -401,22 +490,32 @@ bearer-token mode.
 | `GET` | `/api/auth/me` | access cookie | Returns `{ id, email }` for the current session. |
 | `PATCH` | `/api/auth/me` | access cookie | `{ currentPassword, email?, newPassword? }` — changes email and/or password. `currentPassword` is always required and re-verified against the stored hash. On a password change, every *other* refresh token for that user is revoked (all other devices/sessions signed out) while the current session gets a fresh token pair. |
 
-### Campaigns (all require the access cookie)
+### Campaigns
+
+All require the access cookie, and every route below is scoped to
+`req.userId` — a 404 is returned for a campaign/recipient that exists but
+belongs to a different account, same as if it didn't exist at all.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/process` | `{ name, subject?, html }` → injects the tracking pixel, rewrites every `<a href>` (skips `mailto:`, `tel:`, `#`, relative URLs, and anything with `data-no-track`), creates the `Campaign` + `Link` rows. `sentCount` always starts at 0. Returns `{ id, processedHtml, linkCount }`. |
-| `GET` | `/api/campaigns` | Lists all campaigns, newest first, with `_count.{opens,clicks,links}`. |
-| `GET` | `/api/campaigns/:id` | Full detail: stats, per-link click breakdown (most-clicked first), stored `processedHtml`. 404 if not found. |
-| `PATCH` | `/api/campaigns/:id` | `{ name?, subject?, html? }`. Renaming just updates the name; `subject: ""` clears the override back to falling through to `name`. Replacing `html` keeps the same open-pixel token (open history stays valid) but **deletes and recreates every `Link`**, which cascades away that campaign's click history, and wipes its `OpenEvent`s too — treated as a fresh send. |
+| `POST` | `/api/process` | `{ name, subject?, html }` → injects the tracking pixel, rewrites every `<a href>` (skips `mailto:`, `tel:`, `#`, relative URLs, and anything with `data-no-track`), creates the `Campaign` (owned by the caller) + `Link` rows. `sentCount` always starts at 0. Returns `{ id, processedHtml, linkCount }`. |
+| `GET` | `/api/campaigns` | `?search=` (matches name/subject) and `?archived=true` (default `false`) — lists the caller's campaigns, newest first, with `_count.{opens,clicks,links}`. |
+| `GET` | `/api/campaigns/:id` | Full detail: stats (raw totals + unique-recipient headcounts), per-link click breakdown (most-clicked first, each with its own unique-clicker count), `archived`, stored `processedHtml`. 404 if not found. |
+| `PATCH` | `/api/campaigns/:id` | `{ name?, subject?, html?, archived? }`. Renaming just updates the name; `subject: ""` clears the override back to falling through to `name`; `archived` toggles the soft-hide flag. Replacing `html` keeps the same open-pixel token (open history stays valid) but **deletes and recreates every `Link`**, which cascades away that campaign's click history, and wipes its `OpenEvent`s too — treated as a fresh send. |
 | `DELETE` | `/api/campaigns/:id` | Deletes the campaign and cascades every link, recipient, open, and click logged against it. Irreversible. |
-| `POST` | `/api/campaigns/:id/recipients` | `{ emails }` (newline/comma-separated) → adds `Recipient` rows for a platform send. |
-| `GET` | `/api/campaigns/:id/recipients` | `{ recipients, summary }` — per-recipient status/open/click detail plus a `{pending,sending,sent,failed}` summary. |
+| `POST` | `/api/campaigns/:id/recipients` | `{ emails }` (newline/comma-separated, no name) **or** `{ rows: [{email, name?}] }` (takes priority if both are sent) → adds `Recipient` rows for a platform send. Dedupes case-insensitively; returns `{ ok, created, skipped, invalid }`. |
+| `POST` | `/api/campaigns/:id/recipients/upload` | `multipart/form-data`, field `file` — a `.xlsx` with email + name columns (max 5MB, parsed in memory, never written to disk). Every accepted row gets a `name`, which is what makes `{{name}}` resolve at send time. Same response shape as the plain-paste route above. |
+| `GET` | `/api/campaigns/:id/recipients` | `{ recipients, summary }` — per-recipient status/open/click detail (including `name`, first-open time, and which links they clicked) plus a `{pending,sending,sent,failed}` summary (real recipients only; test-sends are still included in `recipients`, just excluded from `summary`). |
 | `GET` | `/api/campaigns/:id/recipients/:recipientId` | Full detail for one recipient, including the actual open/click event timeline. |
+| `PATCH` | `/api/campaigns/:id/recipients/:recipientId` | `{ name }` — rename a recipient (empty string clears it, disabling `{{name}}` for them). |
 | `DELETE` | `/api/campaigns/:id/recipients/:recipientId` | Removes one recipient row. |
-| `POST` | `/api/campaigns/:id/send-test` | Sends one personalized copy to the caller's own account address; never counts toward campaign totals. |
-| `POST` | `/api/campaigns/:id/send` | Kicks off an async send to every pending recipient over the shared SMTP mailbox — see Operational notes. |
-| `GET` | `/api/campaigns/:id/activity` | Recent open/click feed, newest first, real recipients only. |
+| `POST` | `/api/campaigns/:id/send-test` | Sends one personalized copy to the caller's own account address; upserts an `isTest` recipient row, never counts toward campaign totals or the `summary` above. |
+| `POST` | `/api/campaigns/:id/send` | `202 { ok, queued }` — kicks off an async, sequential send to every `pending` non-test recipient over the shared SMTP mailbox (fire-and-forget; poll `GET .../recipients` for live progress). 400 if there's no pending recipient or no stored HTML. |
+| `POST` | `/api/campaigns/:id/recipients/:recipientId/send` | Sends to exactly that one pending recipient without touching the rest of the list — the single-address counterpart to bulk `/send` above. |
+| `GET` | `/api/campaigns/:id/activity?limit=20` | Recent open/click feed, newest first, real recipients only. `limit` is clamped to 1–100. |
+| `GET` | `/api/campaigns/:id/timeline` | Rolling last-30-days, UTC-day-bucketed, zero-filled `{ days: [{date, opens, clicks}], firstSentAt }` — real recipients only. Backs the engagement chart. |
+| `GET` | `/api/campaigns/:id/export/recipients` | CSV download (`Content-Disposition: attachment`) — one row per real recipient: email, name, status, sent-at, error, open count, first-open time, click count, clicked links. |
+| `GET` | `/api/campaigns/:id/export/activity` | CSV download — every open/click event for the campaign (uncapped, unlike the JSON `/activity` feed above), oldest first. |
 
 ## Database schema
 
@@ -427,16 +526,19 @@ silently drop columns/tables that no longer exist in the schema file).
 
 | Model | Key fields | Notes |
 |---|---|---|
-| `Campaign` | `id`, `name`, `subject?`, `openToken` (unique), `sentCount`, `createdAt`, `processedHtml`, `firstSentAt?` | One row per campaign. `processedHtml` stores the full tracked HTML so it can be re-downloaded later. `sentCount` is server-only — only the send loop increments it. |
+| `Campaign` | `id`, `userId`, `name`, `subject?`, `openToken` (unique), `sentCount`, `createdAt`, `processedHtml`, `firstSentAt?`, `archived` | One row per campaign, owned by exactly one `User`. `processedHtml` stores the full tracked HTML so it can be re-downloaded later. `sentCount` is server-only — only the send loop increments it. `archived` soft-hides it from the default `GET /api/campaigns` list without deleting anything. |
 | `Link` | `id`, `token` (unique), `originalUrl`, `label`, `campaignId` | One row per rewritten link in a campaign. Deleted/recreated on HTML replace. |
-| `Recipient` | `id`, `campaignId`, `email`, `status`, `error?`, `isTest`, `sentAt?`, `createdAt` | One row per email a campaign was (or will be) platform-sent to. `id` is the `?r=` value in that recipient's personalized tracking URLs. `isTest` rows are send-test-to-self copies, excluded from analytics. |
+| `Recipient` | `id`, `campaignId`, `email`, `name?`, `status`, `error?`, `isTest`, `sentAt?`, `createdAt` | One row per email a campaign was (or will be) platform-sent to. `id` is the `?r=` value in that recipient's personalized tracking URLs. `name` (from the `.xlsx` upload) drives `{{name}}` substitution; null for plain-paste recipients. `isTest` rows are send-test-to-self copies, excluded from analytics — `[campaignId, email, isTest]` is the unique key, so a test-send to an address that's also a real recipient never merges into that real row. |
 | `OpenEvent` | `id`, `campaignId`, `recipientId?`, `ip?`, `userAgent?`, `createdAt` | One row per pixel hit. No dedup — every hit is logged. `recipientId` is a real FK, nullable for manual-paste campaigns. |
 | `ClickEvent` | `id`, `linkId`, `campaignId`, `recipientId?`, `ip?`, `userAgent?`, `createdAt` | One row per link click. No dedup. |
-| `User` | `id`, `email` (unique), `passwordHash`, `createdAt` | Operator accounts. Created only via `create-user`. |
+| `User` | `id`, `email` (unique), `passwordHash`, `createdAt` | Operator accounts. Created only via `create-user`. Owns every `Campaign` it created. |
 | `RefreshToken` | `id`, `userId`, `tokenHash` (unique), `expiresAt`, `revokedAt?`, `replacedByTokenId?`, `userAgent?`, `ip?` | The raw refresh token is never stored — only its SHA-256 hash. |
 
-All child rows cascade-delete with their parent (`Campaign` → `Link` /
-`OpenEvent` / `ClickEvent`; `Link` → `ClickEvent`; `User` → `RefreshToken`).
+All child rows cascade-delete with their parent: `User` → `Campaign` (and
+`RefreshToken`); `Campaign` → `Link` / `OpenEvent` / `ClickEvent` /
+`Recipient`; `Link` → `ClickEvent`. **Deleting a `User` deletes every
+campaign they own and everything under those campaigns** — see
+[Disabling / removing a user account](#disabling--removing-a-user-account).
 
 ## Prisma workflow
 
@@ -509,11 +611,14 @@ points at, prod included if that's what's configured — double-check which
   `@db.LongText`/`@db.Text` specifically so a full HTML email or a long URL
   doesn't get silently truncated on insert. Don't remove these annotations
   when touching the schema.
-- **Cascades are defined in the schema, not assumed.** `Campaign → Link /
-  OpenEvent / ClickEvent`, `Link → ClickEvent`, and `User → RefreshToken`
-  all use `onDelete: Cascade` — deleting a `Campaign` really does wipe every
-  associated link/open/click row, and it's irreversible (see the
-  [API reference](#api-reference) note on `DELETE /api/campaigns/:id`).
+- **Cascades are defined in the schema, not assumed.** `User → Campaign /
+  RefreshToken`, `Campaign → Link / Recipient / OpenEvent / ClickEvent`, and
+  `Link → ClickEvent` all use `onDelete: Cascade` — deleting a `Campaign`
+  really does wipe every associated link/recipient/open/click row, and
+  deleting a `User` wipes every campaign they own on top of that. Both are
+  irreversible (see the [API reference](#api-reference) note on
+  `DELETE /api/campaigns/:id` and
+  [Disabling / removing a user account](#disabling--removing-a-user-account)).
 - **Unique tokens are enforced at the DB level.** `Campaign.openToken` and
   `Link.token` are `@unique` — token collisions from `nanoid` fail at the
   database, not silently.
@@ -580,7 +685,9 @@ config — real `DATABASE_URL`, `PUBLIC_TRACK_BASE_URL` set to the backend's
 own real HTTPS domain, `FRONTEND_ORIGIN` set to the frontend's real HTTPS
 domain, a strong `JWT_ACCESS_SECRET`, `NODE_ENV=production` (this flips
 cookies to `Secure`, so it must be set correctly), `COOKIE_DOMAIN=""` unless
-you're on the shared-parent-domain setup.
+you're on the shared-parent-domain setup, and the `SMTP_*`/`EMAIL_FROM_*`
+vars if you want platform send available (optional — skip them and only the
+manual paste-into-Carbonio flow works).
 
 ### Frontend — deploy to Vercel
 
@@ -684,24 +791,38 @@ required by the ESM/NodeNext setup, not a typo.
 
 ## Why no rates?
 
-Earlier iterations of this app computed "unique opens," "unique clicks,"
-open rate, and click-through rate. That was deliberately removed. One
-identical HTML blob gets pasted into Carbonio and sent to every recipient
-in a campaign — there's no per-recipient identifier baked in, so
-"unique open" can only ever be an approximation (IP+User-Agent
-fingerprinting, which collides constantly on shared networks/browsers), and
-a computed percentage on top of an approximation reads as far more precise
-than the underlying data actually supports. The dashboard now shows **raw
-totals only**: total opens, total clicks per link, total clicks overall,
-and the manually-entered send count. Nothing here is deduplicated or
-rate-computed, on purpose.
+Earlier iterations of this app computed open rate and click-through rate as
+percentages. That was deliberately removed and hasn't come back: for a
+manually-pasted-into-Carbonio campaign, one identical HTML blob goes to every
+recipient with no per-recipient identifier baked in, so any percentage
+computed on top of it reads as far more precise than the underlying data
+actually supports — **no `%`-based math anywhere in this app, still true.**
+
+What *did* come back, deliberately, is a **per-recipient headcount** —
+`uniqueOpens`/`uniqueClicks` on the campaign, and a per-link `uniqueClicks` —
+but only as a plain integer ("14 distinct people clicked this link"), never
+as a rate against `sentCount`. This only works at all for platform-sent
+recipients, since a `Recipient` row is what gives an open/click a specific
+person to be attributed to (`?r=` in the tracking URL) — a manual-paste
+campaign has no such identifier, so its opens/clicks can't be deduped by
+person and only the raw totals below apply to it. `rawOpens`/`totalClicks`
+remain **undeduplicated, exactly as before** — every hit is logged and
+counted, headcount or no headcount, and `sentCount` is a live count of actual
+platform sends, not a manual entry.
 
 ## Security notes
 
 - **No self-registration, no in-app user admin.** Accounts exist only via
   `npm run create-user`, run by whoever has server/DB access. This is a
-  small, trusted, internal tool — treat `DATABASE_URL` and
-  `JWT_ACCESS_SECRET` as the real secrets they are.
+  small, trusted, internal tool — treat `DATABASE_URL`, `JWT_ACCESS_SECRET`,
+  and the `SMTP_*` credentials as the real secrets they are.
+- **Multi-user isolation is enforced at the query level, not just the UI.**
+  Every campaign/recipient route filters by `req.userId` (from the verified
+  access token) — a campaign belonging to another account 404s exactly like
+  one that doesn't exist, it's never merely hidden client-side. There is
+  still only one shared SMTP mailbox for platform send across all accounts
+  (see [Operational notes](#operational-notes)) — isolation is per-campaign
+  data, not per-user sending infrastructure.
 - **Refresh-token reuse detection**: presenting an already-rotated (i.e.
   replayed/stolen) `mt_refresh` cookie immediately revokes *every* active
   session for that user, forcing a fresh login everywhere. This is
@@ -724,16 +845,28 @@ rate-computed, on purpose.
 
 ## Operational notes
 
-- No file storage/uploads — everything (processed HTML, stats, accounts)
-  lives in MySQL. No S3/blob storage dependency.
+- No persistent file storage — the `.xlsx` recipient upload is parsed
+  entirely in memory (`multer.memoryStorage()`) and discarded once its rows
+  are written to MySQL as `Recipient` rows; nothing is ever written to disk,
+  no S3/blob storage dependency. Everything durable (processed HTML, stats,
+  accounts, recipients) lives in MySQL.
 - No queues or cron; the one exception is a platform send (`POST
-  /api/campaigns/:id/send`), which responds immediately and runs its send
-  loop fire-and-forget on the same process — sequential, not parallel, since
-  every campaign shares one SMTP mailbox/connection pool. Poll `GET
-  .../recipients` for progress. Everything else happens synchronously on request.
-- No plain-text email path — only HTML campaigns are supported, by design.
+  /api/campaigns/:id/send`), which responds `202` immediately and runs its
+  send loop fire-and-forget on the same process — sequential, not parallel,
+  with a fixed delay between sends, since every campaign shares one SMTP
+  mailbox/connection pool. Poll `GET .../recipients` for progress. Everything
+  else happens synchronously on request.
+- No plain-text email path — only HTML campaigns are supported, by design,
+  for both the manual-paste and platform-send flows.
+- Platform send is optional per-deployment: if `SMTP_*`/`EMAIL_FROM_*` aren't
+  set, every send/send-test route just fails with a clear "SMTP is not
+  configured" error — the manual paste-into-Carbonio flow doesn't need SMTP
+  at all and keeps working regardless.
 - `sentCount` is a live count of actual platform sends (incremented once per
   successful send in the loop above) — there is no manual-entry path for it.
+- CSV export (`GET .../export/recipients`, `GET .../export/activity`) is
+  generated on request, not cached or written anywhere — same "no file
+  storage" story as the upload above.
 - Database migrations use `prisma db push`, not `prisma migrate` — there is
   no migration history file. Fine at this project's size; just always
   review the diff Prisma prints before confirming against production.
