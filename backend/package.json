@@ -28,7 +28,8 @@
     "jose": "^5.9.6",
     "multer": "^2.3.0",
     "nanoid": "^5.1.6",
-    "nodemailer": "^10.0.3"
+    "nodemailer": "^10.0.3",
+    "prisma": "^6.16.1"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.8",
@@ -37,7 +38,6 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.1",
-    "prisma": "^6.16.1",
     "tsx": "^4.19.2",
     "typescript": "^5"
   }
