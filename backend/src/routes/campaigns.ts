@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { Router, type Request } from "express";
 import { prisma } from "../db.js";
-import { loadCampaign } from "../lib/query.js";
+import { loadCampaign, loadUniqueCountsByCampaign } from "../lib/query.js";
 import { newOpenToken, transformHtml } from "../lib/transform.js";
 
 function publicBaseUrl(req: Request): string {
@@ -85,7 +85,13 @@ campaignsRouter.get("/", async (req, res) => {
     include: { _count: { select: { opens: true, clicks: true, links: true } } },
   });
 
-  res.json(campaigns);
+  const uniqueCounts = await loadUniqueCountsByCampaign(campaigns.map((c) => c.id));
+  const withUnique = campaigns.map((c) => ({
+    ...c,
+    ...(uniqueCounts.get(c.id) ?? { uniqueOpens: 0, uniqueClicks: 0 }),
+  }));
+
+  res.json(withUnique);
 });
 
 campaignsRouter.get("/:id", async (req, res) => {

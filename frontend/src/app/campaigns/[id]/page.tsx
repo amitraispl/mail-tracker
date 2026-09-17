@@ -1,15 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadCampaign, type PerLinkStats } from "@/lib/backend";
-import {
-  Card,
-  DataTable,
-  Eyebrow,
-  PageHeader,
-  Stat,
-  buttonClassName,
-  type Column,
-} from "@/components";
+import { loadCampaign } from "@/lib/backend";
+import { Card, Eyebrow, PageHeader, Stat, buttonClassName } from "@/components";
 import { ActivityFeed } from "./ActivityFeed";
 import { ArchiveCampaign } from "./ArchiveCampaign";
 import { CampaignControls } from "./CampaignControls";
@@ -17,6 +9,7 @@ import { CampaignEditor } from "./CampaignEditor";
 import { DeleteCampaign } from "./DeleteCampaign";
 import { EngagementLeaderboard } from "./EngagementLeaderboard";
 import { EngagementTimeline } from "./EngagementTimeline";
+import { LinksPanel } from "./LinksPanel";
 import { RecipientsPanel } from "./RecipientsPanel";
 import { RefreshButton } from "./RefreshButton";
 import styles from "./dashboard.module.css";
@@ -57,58 +50,6 @@ function ClickIcon() {
   );
 }
 
-function linkColumns(maxClicks: number): Column<PerLinkStats>[] {
-  return [
-    {
-      key: "label",
-      header: "Link",
-      cell: (link, index) => (
-        <span className={styles.linkLabel}>
-          {link.label ?? "Untitled link"}
-          {index === 0 && link.totalClicks > 0 && (
-            <span className={styles.mostClickedBadge}>Most clicked</span>
-          )}
-        </span>
-      ),
-    },
-    {
-      key: "url",
-      header: "Original URL",
-      cell: (link) => (
-        <a
-          className={styles.url}
-          href={link.originalUrl}
-          title={link.originalUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {link.originalUrl}
-        </a>
-      ),
-      mono: true,
-    },
-    {
-      key: "totalClicks",
-      header: "Clicks",
-      cell: (link) => (
-        <span className={styles.clickCell}>
-          <span className={styles.clickValue}>{link.totalClicks}</span>
-          <span className={styles.clickTrack} aria-hidden="true">
-            <span
-              className={styles.clickBar}
-              style={{ width: maxClicks > 0 ? `${(link.totalClicks / maxClicks) * 100}%` : "0%" }}
-            />
-          </span>
-          <span className={styles.uniqueClicksNote}>{link.uniqueClicks} people</span>
-        </span>
-      ),
-      align: "right",
-      mono: true,
-      width: "140px",
-    },
-  ];
-}
-
 export default async function CampaignDashboardPage({
   params,
 }: {
@@ -120,7 +61,6 @@ export default async function CampaignDashboardPage({
   if (!campaign) notFound();
 
   const { stats } = campaign;
-  const maxClicks = campaign.perLink.reduce((max, l) => Math.max(max, l.totalClicks), 0);
 
   return (
     <>
@@ -221,10 +161,17 @@ export default async function CampaignDashboardPage({
           </Card>
 
           <Card
-            title="Opens & clicks, last 30 days"
+            title="Opens & clicks"
             description="Raw daily counts, not smoothed — a dashed line marks the day this campaign was first sent."
           >
             <EngagementTimeline campaignId={campaign.id} />
+          </Card>
+
+          <Card
+            title="Links"
+            description="Every rewritten link counts on its own token, ranked by clicks. Click a row to see who clicked it."
+          >
+            <LinksPanel campaignId={campaign.id} links={campaign.perLink} />
           </Card>
 
           <Card
@@ -232,18 +179,6 @@ export default async function CampaignDashboardPage({
             description="Top 5 recipients by opens + clicks combined. Test sends excluded."
           >
             <EngagementLeaderboard campaignId={campaign.id} />
-          </Card>
-
-          <Card
-            title="Links"
-            description="Every rewritten link counts on its own token, ranked by clicks."
-          >
-            <DataTable
-              columns={linkColumns(maxClicks)}
-              rows={campaign.perLink}
-              rowKey={(link) => link.id}
-              empty="No trackable links were found in this email."
-            />
           </Card>
 
           <Card

@@ -23,6 +23,36 @@ export interface CampaignDetail {
   perLink: PerLinkStats[];
 }
 
+/** Per-recipient open/click headcount for a batch of campaigns, keyed by
+ *  campaignId — same dedup rules as loadCampaign's single-campaign version
+ *  (isTest and null-recipientId events excluded), just bucketed in JS instead
+ *  of running one query per campaign. */
+export async function loadUniqueCountsByCampaign(
+  campaignIds: string[],
+): Promise<Map<string, { uniqueOpens: number; uniqueClicks: number }>> {
+  const result = new Map<string, { uniqueOpens: number; uniqueClicks: number }>();
+  if (campaignIds.length === 0) return result;
+
+  const [opens, clicks] = await Promise.all([
+    prisma.openEvent.findMany({
+      where: { campaignId: { in: campaignIds }, recipientId: { not: null }, recipient: { isTest: false } },
+      distinct: ["campaignId", "recipientId"],
+      select: { campaignId: true },
+    }),
+    prisma.clickEvent.findMany({
+      where: { campaignId: { in: campaignIds }, recipientId: { not: null }, recipient: { isTest: false } },
+      distinct: ["campaignId", "recipientId"],
+      select: { campaignId: true },
+    }),
+  ]);
+
+  for (const id of campaignIds) result.set(id, { uniqueOpens: 0, uniqueClicks: 0 });
+  for (const { campaignId } of opens) result.get(campaignId)!.uniqueOpens++;
+  for (const { campaignId } of clicks) result.get(campaignId)!.uniqueClicks++;
+
+  return result;
+}
+
 export async function loadCampaign(id: string, userId: string): Promise<CampaignDetail | null> {
   const campaign = await prisma.campaign.findFirst({
     where: { id, userId },

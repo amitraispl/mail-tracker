@@ -46,9 +46,11 @@ export default async function HomePage({
       acc.opens += c._count.opens;
       acc.clicks += c._count.clicks;
       acc.sent += c.sentCount;
+      acc.uniqueOpens += c.uniqueOpens;
+      acc.uniqueClicks += c.uniqueClicks;
       return acc;
     },
-    { opens: 0, clicks: 0, sent: 0 },
+    { opens: 0, clicks: 0, sent: 0, uniqueOpens: 0, uniqueClicks: 0 },
   );
 
   return (
@@ -107,15 +109,15 @@ export default async function HomePage({
               <span className={styles.summaryDivider} aria-hidden="true">
                 &middot;
               </span>
-              <span className="mono tabular">{totals.opens}</span> opens
-              <span className={styles.summaryDivider} aria-hidden="true">
-                &middot;
-              </span>
-              <span className="mono tabular">{totals.clicks}</span> clicks
-              <span className={styles.summaryDivider} aria-hidden="true">
-                &middot;
-              </span>
               <span className="mono tabular">{totals.sent}</span> sent
+              <span className={styles.summaryDivider} aria-hidden="true">
+                &middot;
+              </span>
+              <span className="mono tabular">{totals.uniqueOpens}</span> unique opens
+              <span className={styles.summaryDivider} aria-hidden="true">
+                &middot;
+              </span>
+              <span className="mono tabular">{totals.uniqueClicks}</span> unique clicks
             </p>
             <div className={styles.list}>
               {campaigns.map((campaign) => (
@@ -136,9 +138,9 @@ export default async function HomePage({
                       </p>
                     </div>
                     <div className={styles.tags}>
-                      <Tag label="opens" value={campaign._count.opens} />
-                      <Tag label="clicks" value={campaign._count.clicks} />
                       <Tag label="sent" value={campaign.sentCount} />
+                      <Tag label="opens" value={campaign.uniqueOpens} />
+                      <Tag label="clicks" value={campaign.uniqueClicks} />
                     </div>
                   </Link>
                   <CampaignRowArchiveToggle id={campaign.id} archived={campaign.archived} />

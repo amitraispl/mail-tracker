@@ -537,21 +537,38 @@ function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Rolling last-30-days, UTC day buckets, zero-filled so the frontend never
- *  has to guess about gaps. Bucketed in JS (fetch once, group in memory)
- *  rather than a DB-specific date-trunc — same style as `clicksByLink` above. */
+/** Days back for each selectable range, `null` meaning "since the campaign
+ *  was created" (there's no fixed cutoff for `max`). */
+const TIMELINE_RANGE_DAYS: Record<string, number | null> = {
+  "30d": 30,
+  "3m": 90,
+  "1y": 365,
+  max: null,
+};
+
+/** UTC day buckets, zero-filled so the frontend never has to guess about
+ *  gaps. Bucketed in JS (fetch once, group in memory) rather than a
+ *  DB-specific date-trunc — same style as `clicksByLink` above. Always raw
+ *  daily counts, never smoothed/weekly-bucketed, even for `max` — that's a
+ *  deliberate product call, not a default that needs revisiting for large ranges. */
 sendingRouter.get("/:id/timeline", async (req, res) => {
   const { id } = req.params;
   const campaign = await prisma.campaign.findFirst({
     where: { id, userId: req.userId! },
-    select: { firstSentAt: true },
+    select: { firstSentAt: true, createdAt: true },
   });
   if (!campaign) {
     res.status(404).json({ error: "Campaign not found." });
     return;
   }
 
-  const since = new Date(Date.now() - 29 * DAY_MS);
+  const rangeKey = typeof req.query.range === "string" ? req.query.range : "30d";
+  const rangeDays = Object.prototype.hasOwnProperty.call(TIMELINE_RANGE_DAYS, rangeKey)
+    ? TIMELINE_RANGE_DAYS[rangeKey]
+    : TIMELINE_RANGE_DAYS["30d"];
+
+  const since =
+    rangeDays === null ? new Date(campaign.createdAt) : new Date(Date.now() - (rangeDays - 1) * DAY_MS);
   since.setUTCHours(0, 0, 0, 0);
 
   const [opens, clicks] = await Promise.all([
@@ -577,6 +594,68 @@ sendingRouter.get("/:id/timeline", async (req, res) => {
   }
 
   res.json({ days, firstSentAt: campaign.firstSentAt });
+});
+
+/* ---- per-link clickers ---- */
+
+/** Who clicked one specific rewritten link, one row per recipient (dedup —
+ *  `clickCount` covers repeat clicks by the same person), most recent click
+ *  first. isTest and null-recipientId (manual-paste) clicks are excluded,
+ *  same rule as every other analytics query. */
+sendingRouter.get("/:id/links/:linkId/clickers", async (req, res) => {
+  const { id, linkId } = req.params;
+  const campaign = await requireCampaign(id, req.userId!);
+  if (!campaign) {
+    res.status(404).json({ error: "Campaign not found." });
+    return;
+  }
+
+  const link = await prisma.link.findFirst({
+    where: { id: linkId, campaignId: id },
+    select: { id: true, label: true, originalUrl: true },
+  });
+  if (!link) {
+    res.status(404).json({ error: "Link not found." });
+    return;
+  }
+
+  const clicks = await prisma.clickEvent.findMany({
+    where: { linkId, campaignId: id, recipientId: { not: null }, recipient: { isTest: false } },
+    orderBy: { createdAt: "asc" },
+    select: {
+      createdAt: true,
+      recipientId: true,
+      recipient: { select: { email: true, name: true } },
+    },
+  });
+
+  const byRecipient = new Map<
+    string,
+    { recipientId: string; email: string; name: string | null; clickCount: number; firstClickAt: Date; lastClickAt: Date }
+  >();
+  for (const c of clicks) {
+    const rid = c.recipientId!;
+    const existing = byRecipient.get(rid);
+    if (existing) {
+      existing.clickCount++;
+      existing.lastClickAt = c.createdAt;
+    } else {
+      byRecipient.set(rid, {
+        recipientId: rid,
+        email: c.recipient!.email,
+        name: c.recipient!.name,
+        clickCount: 1,
+        firstClickAt: c.createdAt,
+        lastClickAt: c.createdAt,
+      });
+    }
+  }
+
+  const clickers = Array.from(byRecipient.values()).sort(
+    (a, b) => b.lastClickAt.getTime() - a.lastClickAt.getTime(),
+  );
+
+  res.json({ link, clickers });
 });
 
 /* ---- CSV exports ---- */

@@ -53,6 +53,8 @@ export interface CampaignListItem {
   processedHtml: string | null;
   archived: boolean;
   _count: { opens: number; clicks: number; links: number };
+  uniqueOpens: number;
+  uniqueClicks: number;
 }
 
 export interface LoadCampaignListOptions {
