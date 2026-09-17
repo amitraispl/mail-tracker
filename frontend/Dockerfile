@@ -13,6 +13,16 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY . .
 ENV NODE_ENV=production
+
+# next.config.ts's rewrites() destination is resolved into .next's build
+# manifest at build time, not read fresh per-request — so it needs the real
+# value HERE, not just in the runtime container's environment. .dockerignore
+# deliberately excludes .env from this build context (so no other secret in
+# it ever ends up in the image), which means this can't come from a .env
+# file — it has to be a build arg instead.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 RUN npm run build
 
 # NOTE: devDependencies are kept, not pruned — next.config.ts is TypeScript,

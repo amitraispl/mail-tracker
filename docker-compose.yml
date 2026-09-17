@@ -102,12 +102,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # Must be http://backend:4000 (the compose service name), not the
+      # public trackerapi hostname — next.config.ts's rewrites() bakes this
+      # in at build time (see the comment in frontend/Dockerfile), so it has
+      # to be a build arg, not just a runtime env var. frontend/.env carries
+      # the same value too, for lib/backend.ts's runtime reads.
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:4000
     container_name: mail-tracker-frontend
-    # frontend/.env's NEXT_PUBLIC_API_URL must be http://backend:4000 (the
-    # compose service name) here, not the public trackerapi hostname —
-    # next.config.ts's rewrites() and lib/backend.ts run inside this
-    # container and reach the backend directly over ispl-website, no need
-    # to round-trip through Traefik.
     env_file:
       - ./frontend/.env
     depends_on:

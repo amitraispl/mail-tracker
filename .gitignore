@@ -2,3 +2,6 @@
 traefik/certs/*.crt
 traefik/certs/*.key
 !traefik/certs/.gitkeep
+
+# Live secrets pulled from a deployed VM — never committed
+VM_ENV_VALUES.md
