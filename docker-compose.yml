@@ -1,28 +1,60 @@
 # docker-compose.yml — Mail Tracker
 #
-# Self-host alternative to the Vercel(frontend) + persistent-host(backend) setup
-# described in README.md. Both app services still deploy independently in
-# prod — this just lets you run the whole stack, including its own database,
-# on one box.
+# All four services — traefik, frontend, backend, mysql — in one file, one
+# VM, same shape as illumiasolutions.com's own docker-compose.yml. Traefik
+# terminates TLS and routes by hostname; frontend/backend publish no ports of
+# their own, only Traefik's 80/443 are exposed to the host. See
+# TRAEFIK_SETUP.md for the full first-run walkthrough (network + cert setup).
 #
 # Bundled database: the `mysql` service below is a local MariaDB container
-# for self-hosting convenience. This app also works fine against an external
-# managed MySQL (Aiven, RDS, etc.) instead — if you go that route, delete the
-# `mysql` service below and the four MARIADB_* vars from backend/.env.example,
-# and just point backend/.env's DATABASE_URL at your managed host directly
-# (see the comment above DATABASE_URL in backend/.env.example).
+# for convenience — delete it and point backend/.env's DATABASE_URL at an
+# external managed MySQL host instead if you'd rather.
+#
+# Hostnames below (tracker.illumiasolutions.com / trackerapi.illumiasolutions.com
+# / traefik.illumiasolutions.com) are placeholders — swap for whatever DNS
+# actually points at this VM.
 #
 # Usage:
-#   docker compose up -d          # build & start
-#   docker compose up -d --build  # rebuild after code changes
-#   docker compose down           # stop & remove (keeps the mysql_data volume)
-#   docker compose down -v        # also delete the mysql_data volume  ← DESTRUCTIVE
-#   docker compose logs -f        # tail logs
+#   docker network create ispl-website   # once, before first `up`
+#   docker compose up -d --build         # build & start
+#   docker compose down                  # stop & remove (keeps the mysql_data volume)
+#   docker compose logs -f               # tail logs
 
 services:
 
-  # ── Database ──────────────────────────────────────────────────────────────
-  # Reachable only from backend, via db-net. frontend has no route to it.
+  traefik:
+    image: traefik:v3.7
+    container_name: mail-tracker-traefik
+    command:
+      - "--api.insecure=false"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=ispl-website"
+      - "--providers.file.filename=/dynamic/tls.yaml"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.tls=true"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.illumiasolutions.com`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic:/dynamic:ro
+      - ./traefik/certs:/certs:ro
+    networks:
+      - ispl-website
+
   mysql:
     image: mariadb:10.11.13
     container_name: mail-tracker-mysql
@@ -30,76 +62,29 @@ services:
       - ./backend/.env
     volumes:
       - mysql_data:/var/lib/mysql
-    networks:
-      - db-net
     restart: unless-stopped
-    init: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    cap_add: [SETGID, SETUID, DAC_OVERRIDE]   # required for mysql data dir ownership
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512m
-        reservations:
-          cpus: "0.25"
-          memory: 128m
+    networks:
+      - ispl-website
     healthcheck:
-      # healthcheck.sh is the official MariaDB image's own health script —
-      # avoids putting a password on the command line.
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       start_period: 30s
       retries: 10
-    labels:
-      com.mailtracker.service: "mysql"
-      com.mailtracker.role: "database"
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: mail-tracker-backend:latest
     container_name: mail-tracker-backend
     env_file:
       - ./backend/.env
     depends_on:
       mysql:
         condition: service_healthy
-    ports:
-      - "${BACKEND_PORT:-4000}:4000"
     restart: unless-stopped
-    init: true                         # tini as PID 1 — proper signal forwarding + zombie reaping
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    read_only: true
-    tmpfs:
-      - /tmp:size=32m,mode=1777
     networks:
-      - db-net
-      - app-net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512m
-        reservations:
-          cpus: "0.25"
-          memory: 128m
+      - ispl-website
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:4000/healthz"]
       interval: 30s
@@ -107,66 +92,40 @@ services:
       start_period: 15s
       retries: 5
     labels:
-      com.mailtracker.service: "backend"
-      com.mailtracker.role: "api"
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailtracker-backend.rule=Host(`trackerapi.illumiasolutions.com`)"
+      - "traefik.http.routers.mailtracker-backend.entrypoints=websecure"
+      - "traefik.http.routers.mailtracker-backend.tls=true"
+      - "traefik.http.services.mailtracker-backend.loadbalancer.server.port=4000"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: mail-tracker-frontend:latest
     container_name: mail-tracker-frontend
     # frontend/.env's NEXT_PUBLIC_API_URL must be http://backend:4000 (the
-    # compose service name) here, not localhost:4000 — next.config.ts's
-    # rewrites() and lib/backend.ts run inside this container and need the
-    # in-network address to reach the backend service.
+    # compose service name) here, not the public trackerapi hostname —
+    # next.config.ts's rewrites() and lib/backend.ts run inside this
+    # container and reach the backend directly over ispl-website, no need
+    # to round-trip through Traefik.
     env_file:
       - ./frontend/.env
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
-    init: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    read_only: true
-    tmpfs:
-      - /tmp:size=32m,mode=1777
     networks:
-      - app-net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256m
-        reservations:
-          cpus: "0.10"
-          memory: 64m
-    healthcheck:
-      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:3000/login"]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
+      - ispl-website
     labels:
-      com.mailtracker.service: "frontend"
-      com.mailtracker.role: "web"
-
-networks:
-  db-net:
-    driver: bridge
-    internal: true      # no outbound internet from this network — DB is fully isolated
-  app-net:
-    driver: bridge
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailtracker-frontend.rule=Host(`tracker.illumiasolutions.com`)"
+      - "traefik.http.routers.mailtracker-frontend.entrypoints=websecure"
+      - "traefik.http.routers.mailtracker-frontend.tls=true"
+      - "traefik.http.services.mailtracker-frontend.loadbalancer.server.port=3000"
 
 volumes:
   mysql_data:
-    driver: local
+
+networks:
+  ispl-website:
+    external: true

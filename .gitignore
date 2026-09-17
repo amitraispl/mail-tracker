@@ -1,0 +1,4 @@
+# TLS material — generated per-VM, never committed (see traefik/README.md)
+traefik/certs/*.crt
+traefik/certs/*.key
+!traefik/certs/.gitkeep

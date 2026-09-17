@@ -43,9 +43,14 @@ RUN addgroup -S -g 1001 appgroup && \
 WORKDIR /app
 
 # package.json is needed only for its "type": "module" field (ESM resolution).
+# prisma/schema.prisma has to be here too — not for the app itself (the
+# generated client already lives in node_modules/.prisma from the build
+# stage), but because `docker exec <container> npx prisma db push` (see
+# README/VM_DEPLOYMENT.md) needs the schema file present to know what to push.
 COPY --from=build --chown=appuser:appgroup /app/package.json ./package.json
 COPY --from=build --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=build --chown=appuser:appgroup /app/dist ./dist
+COPY --from=build --chown=appuser:appgroup /app/prisma ./prisma
 
 USER appuser
 
