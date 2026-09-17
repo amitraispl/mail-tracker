@@ -31,6 +31,9 @@ COPY --from=build --chown=appuser:appgroup /app/package.json ./package.json
 COPY --from=build --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=build --chown=appuser:appgroup /app/.next ./.next
 COPY --from=build --chown=appuser:appgroup /app/next.config.ts ./next.config.ts
+# `next start` serves static assets (the logo, favicon, etc.) straight out of
+# ./public — without this the app still boots fine, it just 404s every asset.
+COPY --from=build --chown=appuser:appgroup /app/public ./public
 
 USER appuser
 
