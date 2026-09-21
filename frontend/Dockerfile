@@ -22,7 +22,6 @@ ENV NODE_ENV=production
 # file — it has to be a build arg instead.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-
 RUN npm run build
 
 # NOTE: devDependencies are kept, not pruned — next.config.ts is TypeScript,

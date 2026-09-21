@@ -22,46 +22,46 @@
 
 services:
 
-  traefik:
-    image: traefik:v3.7
-    container_name: mail-tracker-traefik
-    command:
-      - "--api.insecure=false"
-      - "--api.dashboard=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=ispl-website"
-      - "--providers.file.filename=/dynamic/tls.yaml"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.websecure.http.tls=true"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.dashboard.rule=Host(`traefik.illumiasolutions.com`)"
-      - "traefik.http.routers.dashboard.entrypoints=websecure"
-      - "traefik.http.routers.dashboard.service=api@internal"
-      - "traefik.http.routers.dashboard.tls=true"
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/dynamic:/dynamic:ro
-      - ./traefik/certs:/certs:ro
-    networks:
-      - ispl-website
+  #  traefik:
+  #  image: traefik:v3.7
+  #  container_name: mail-tracker-traefik
+  #  command:
+  #    - "--api.insecure=false"
+  #    - "--api.dashboard=true"
+  #    - "--providers.docker=true"
+  #    - "--providers.docker.exposedbydefault=false"
+  #    - "--providers.docker.network=ispl-website"
+  #    - "--providers.file.filename=/dynamic/tls.yaml"
+  #    - "--entrypoints.web.address=:80"
+  #    - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+  #    - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+  #    - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+  #    - "--entrypoints.websecure.address=:443"
+  #    - "--entrypoints.websecure.http.tls=true"
+  #  labels:
+  #    - "traefik.enable=true"
+  #    - "traefik.http.routers.dashboard.rule=Host(`traefik.illumiasolutions.com`)"
+  #   - "traefik.http.routers.dashboard.entrypoints=websecure"
+  #    - "traefik.http.routers.dashboard.service=api@internal"
+  #    - "traefik.http.routers.dashboard.tls=true"
+  #  restart: unless-stopped
+  #  ports:
+  #    - "80:80"
+  #    - "443:443"
+  #  volumes:
+  #    - /var/run/docker.sock:/var/run/docker.sock:ro
+  #    - ./traefik/dynamic:/dynamic:ro
+  #    - ./traefik/certs:/certs:ro
+  #  networks:
+  #    - ispl-website
 
-  mysql:
+  mail-tracker-mysql:
     image: mariadb:10.11.13
     container_name: mail-tracker-mysql
     env_file:
       - ./backend/.env
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mail-tracker-mysql-data:/var/lib/mysql
     restart: unless-stopped
     networks:
       - ispl-website
@@ -72,7 +72,7 @@ services:
       start_period: 30s
       retries: 10
 
-  backend:
+  mail-tracker-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -80,7 +80,7 @@ services:
     env_file:
       - ./backend/.env
     depends_on:
-      mysql:
+      mail-tracker-mysql:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -93,12 +93,11 @@ services:
       retries: 5
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.mailtracker-backend.rule=Host(`trackerapi.illumiasolutions.com`)"
+      - "traefik.http.routers.mailtracker-backend.rule=Host(`mailtrackerapi.illumiasolutions.com`)"
       - "traefik.http.routers.mailtracker-backend.entrypoints=websecure"
       - "traefik.http.routers.mailtracker-backend.tls=true"
-      - "traefik.http.services.mailtracker-backend.loadbalancer.server.port=4000"
 
-  frontend:
+  mail-tracker-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -112,21 +111,22 @@ services:
     container_name: mail-tracker-frontend
     env_file:
       - ./frontend/.env
+    extra_hosts:
+      - "mailtrackerapi.illumiasolutions.com:172.18.0.14"
     depends_on:
-      backend:
+      mail-tracker-backend:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - ispl-website
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.mailtracker-frontend.rule=Host(`tracker.illumiasolutions.com`)"
+      - "traefik.http.routers.mailtracker-frontend.rule=Host(`mailtracker.illumiasolutions.com`)"
       - "traefik.http.routers.mailtracker-frontend.entrypoints=websecure"
       - "traefik.http.routers.mailtracker-frontend.tls=true"
-      - "traefik.http.services.mailtracker-frontend.loadbalancer.server.port=3000"
 
 volumes:
-  mysql_data:
+  mail-tracker-mysql-data:
 
 networks:
   ispl-website:
